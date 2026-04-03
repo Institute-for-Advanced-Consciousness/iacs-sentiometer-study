@@ -47,10 +47,11 @@ This document defines every action item for building the Sentiometer study task 
 **What**: Implement the shared modules that every task depends on.
 
 **Acceptance Criteria for `lsl_markers.py`**:
-- [ ] `create_marker_outlet(task_name: str) -> StreamOutlet` creates a properly configured LSL marker stream
-- [ ] `send_marker(outlet, marker: str)` sends a string marker with `local_clock()` timestamp
-- [ ] Stream naming follows convention: `IACS_{task_name}_Markers`
-- [ ] Unit test: create outlet, send marker, verify it's receivable by a test inlet
+- [ ] `create_session_outlet(participant_id: str) -> StreamOutlet` creates the `P013_Task_Markers` stream (name=`P013_Task_Markers`, type=`Markers`, channel_format=`cf_string`, nominal_rate=0, source_id=`P013_{participant_id}`). Called once by the launcher at session start.
+- [ ] `send_marker(outlet: StreamOutlet, marker: str)` sends a string marker with `local_clock()` timestamp
+- [ ] Each task's `run()` function receives the outlet as a required parameter — tasks never create or destroy streams
+- [ ] In `--demo` mode (standalone testing), a task can call `create_session_outlet("DEMO")` to create a temporary outlet for itself
+- [ ] Unit test: create outlet, send markers from multiple "tasks" sequentially, verify all are receivable by a test inlet without dropping or reconnecting
 
 **Acceptance Criteria for `display.py`**:
 - [ ] `create_window(fullscreen: bool = True) -> visual.Window` creates a PsychoPy window on the 24" iMac
@@ -78,15 +79,16 @@ This document defines every action item for building the Sentiometer study task 
 **What**: Standard two-tone oddball with active button press. ~250 trials, ~5 min.
 
 **Acceptance Criteria**:
+- [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
 - [ ] `config.yaml` contains all parameters from IRB (frequencies, durations, ISI range, trial counts, ratio)
 - [ ] Pre-generated .wav files for 1000 Hz and 2000 Hz tones (50 ms, 5 ms rise/fall, 44.1 kHz, 16-bit) in `assets/sounds/`
 - [ ] `scripts/generate_tones.py` produces these files reproducibly
 - [ ] Trial sequence: pseudorandom with constraint that no more than 3 consecutive standards occur between deviants
 - [ ] ISI jittered uniformly 1000–1200 ms
-- [ ] LSL markers emitted: `oddball_start`, `oddball_end`, `tone_standard`, `tone_deviant`, `response_hit`, `response_false_alarm`, `response_miss`
+- [ ] LSL markers emitted (all prefixed `task01_`): `task01_start`, `task01_end`, `task01_tone_standard`, `task01_tone_deviant`, `task01_response_hit`, `task01_response_false_alarm`, `task01_response_miss`
 - [ ] Marker timestamp is at tone onset (not after audio buffer fill)
 - [ ] Button press within 200–1000 ms post-deviant = hit; button press after standard = false alarm
-- [ ] `--demo` mode: 20 trials (16 standard + 4 deviant), completes in <30 seconds
+- [ ] `--demo` mode: 20 trials (16 standard + 4 deviant), completes in <30 seconds. Creates its own temporary outlet if none is passed.
 - [ ] Behavioral log saved: CSV with columns `trial, tone_type, onset_time, response_time, response_type, rt_ms`
 - [ ] Task exits cleanly and returns control to launcher
 
@@ -95,14 +97,15 @@ This document defines every action item for building the Sentiometer study task 
 **What**: 300 full-screen color trials (100 R / 100 G / 100 B), passive fixation. ~10 min.
 
 **Acceptance Criteria**:
+- [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
 - [ ] `config.yaml` contains: trial counts per color, ISI range (1.6–2.6 s), constraint (no consecutive same color)
 - [ ] Trial sequence: pseudorandom permutation with no-repeat constraint verified
 - [ ] Full-screen solid color fills entire display (no borders, no taskbar)
 - [ ] Central fixation cross rendered on all color screens (thin white cross)
 - [ ] ISI jittered uniformly 1.6–2.6 s
 - [ ] No black/blank screens between colors — direct color-to-color transitions
-- [ ] LSL markers: `rgb_start`, `rgb_end`, `color_red`, `color_green`, `color_blue` at frame flip
-- [ ] `--demo` mode: 15 trials (5 each), completes in <30 seconds
+- [ ] LSL markers (all prefixed `task02_`): `task02_start`, `task02_end`, `task02_color_red`, `task02_color_green`, `task02_color_blue` at frame flip
+- [ ] `--demo` mode: 15 trials (5 each), completes in <30 seconds. Creates its own temporary outlet if none is passed.
 - [ ] Behavioral log: CSV with `trial, color, onset_time, duration_s`
 - [ ] Color values are pure (R=255,0,0; G=0,255,0; B=0,0,255) — confirm on display with colorimeter or at minimum document the RGB values used
 
@@ -111,6 +114,7 @@ This document defines every action item for building the Sentiometer study task 
 **What**: Adaptive staircase masking with KDEF faces. ~250–300 trials, ~10 min.
 
 **Acceptance Criteria**:
+- [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
 - [ ] `config.yaml` contains: target duration (1 frame = ~17 ms), mask duration (200 ms), fixation duration (500 ms), response window (~1 s), catch trial proportion (~17%), staircase parameters
 - [ ] Adaptive staircase: 2-down/1-up or QUEST procedure converging on ~50% detection threshold
 - [ ] SOA starts at a clearly visible level (e.g., 100 ms) and adapts per participant
@@ -119,9 +123,9 @@ This document defines every action item for building the Sentiometer study task 
 - [ ] Trial structure: Fixation (500 ms) → Face (1 frame) → Blank/gray (SOA – 17 ms) → Mask (200 ms) → Response screen
 - [ ] Catch trials: ~17% of trials show mask only (no face), randomly interleaved
 - [ ] Response: 3-button (Seen / Not Seen / Unsure) — keys clearly displayed on response screen
-- [ ] LSL markers: `masking_start`, `masking_end`, `face_onset`, `mask_onset`, `catch_trial`, `response_seen`, `response_unseen`, `response_unsure`, and `soa_value_XX`
+- [ ] LSL markers (all prefixed `task03_`): `task03_start`, `task03_end`, `task03_face_onset`, `task03_mask_onset`, `task03_catch_trial`, `task03_response_seen`, `task03_response_unseen`, `task03_response_unsure`, and `task03_soa_value_XX`
 - [ ] Staircase state saved to log (all reversals, threshold estimate at end)
-- [ ] `--demo` mode: 20 trials (fixed SOAs, no staircase), completes in <1 min
+- [ ] `--demo` mode: 20 trials (fixed SOAs, no staircase), completes in <1 min. Creates its own temporary outlet if none is passed.
 - [ ] Behavioral log: CSV with `trial, trial_type (face/catch), soa_ms, response, confidence, rt_ms, staircase_level`
 - [ ] README in task directory documents KDEF license requirements and how to populate `stimuli/`
 
@@ -129,31 +133,35 @@ This document defines every action item for building the Sentiometer study task 
 
 **What**: 5-min gameplay → 1-min break → 5-min meditation. ~12 min total.
 
+**Acceptance Criteria — General**:
+- [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
+- [ ] All LSL markers prefixed with `task04_`
+
 **Acceptance Criteria — Game (Block 1)**:
 - [ ] Custom Python rhythm-runner (Geometry Dash analog) implemented in Pygame or PsychoPy
 - [ ] Game mechanics: character auto-scrolls right; spacebar = jump; obstacles at regular/irregular intervals
 - [ ] Visuals: simple but engaging (geometric shapes, not placeholder rectangles)
 - [ ] Speed increases gradually over 5 minutes to maintain engagement
 - [ ] Collision detection: clear visual + audio feedback on collision, brief respawn
-- [ ] LSL markers for every game event: `game_start`, `game_end`, `obstacle_appear`, `jump`, `collision`, `score_update`, `speed_increase`
+- [ ] LSL markers for every game event: `task04_game_start`, `task04_game_end`, `task04_obstacle_appear`, `task04_jump`, `task04_collision`, `task04_score_update`, `task04_speed_increase`
 - [ ] Score displayed on screen
 - [ ] Game ends automatically at 5 minutes regardless of state
 
 **Acceptance Criteria — Break (Transition)**:
 - [ ] 1-minute countdown displayed on screen
 - [ ] Text: "Take a moment to relax and stretch. The next part will begin shortly."
-- [ ] LSL markers: `break_start`, `break_end`
+- [ ] LSL markers: `task04_break_start`, `task04_break_end`
 
 **Acceptance Criteria — Meditation (Block 2)**:
 - [ ] Instruction screen displayed: "Close your eyes. Focus your attention on the sensation of your breath at the nostrils. When you feel settled, begin scanning through your body from head to toe. If you notice your mind wandering, gently return your attention to the breath."
 - [ ] After participant presses spacebar to begin, screen dims to black (or very dark gray)
 - [ ] 5-minute timer (not displayed to participant)
 - [ ] Soft audio chime at end of meditation
-- [ ] LSL markers: `meditation_start`, `meditation_end`
+- [ ] LSL markers: `task04_meditation_start`, `task04_meditation_end`
 
 **Acceptance Criteria — Overall**:
-- [ ] Task orchestrator runs both blocks in fixed order with break between
-- [ ] `--demo` mode: 30-second game, 10-second break, 30-second meditation
+- [ ] Task orchestrator (`task04_start`, `task04_end`) runs both blocks in fixed order with break between
+- [ ] `--demo` mode: 30-second game, 10-second break, 30-second meditation. Creates its own temporary outlet if none is passed.
 - [ ] Behavioral log: CSV with game events (timestamp, event_type, score, speed_level) and meditation metadata (start_time, end_time, total_duration)
 
 ### 1.5 — Task 05: SSVEP Frequency Ramp-Down
@@ -161,14 +169,15 @@ This document defines every action item for building the Sentiometer study task 
 **What**: Flickering checkerboard ramping from 40 Hz → 1 Hz in 1-Hz steps. 5 min.
 
 **Acceptance Criteria**:
+- [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
 - [ ] `config.yaml` contains: frequency range (40–1), step duration (7.5 s), total steps (40), total duration (300 s)
 - [ ] Flickering checkerboard pattern with fixation cross overlaid
 - [ ] Flicker is frame-accurate: for each target frequency, compute the optimal on/off frame pattern given 60 Hz refresh
 - [ ] **Known limitation documented**: frequencies above 30 Hz cannot be accurately rendered on a 60 Hz display. Document which frequencies are achievable and which are approximated. Consider: at 60 Hz refresh, 40 Hz flicker is physically impossible (Nyquist). Note this in config and in the CLAUDE.md.
 - [ ] Continuous transitions — no gap between frequency steps
-- [ ] LSL markers: `ssvep_start`, `ssvep_end`, `freq_step_XX` at each frequency transition
+- [ ] LSL markers (all prefixed `task05_`): `task05_start`, `task05_end`, `task05_freq_step_XX` at each frequency transition
 - [ ] Fixation cross visible throughout
-- [ ] `--demo` mode: 3 steps (40, 20, 1 Hz), 3 seconds each, completes in <10 seconds
+- [ ] `--demo` mode: 3 steps (40, 20, 1 Hz), 3 seconds each, completes in <10 seconds. Creates its own temporary outlet if none is passed.
 - [ ] Behavioral log: CSV with `step, frequency_hz, onset_time, offset_time, actual_frame_count`
 - [ ] Timing log: actual flip timestamps per frame for post-hoc verification of achieved flicker frequency
 
@@ -189,16 +198,19 @@ This must be discussed with Nicco before implementation. For now, implement with
 
 **Acceptance Criteria**:
 - [ ] CLI entry: `uv run python -m tasks.launcher --participant-id P001`
+- [ ] Launcher creates `P013_Task_Markers` LSL outlet (via `create_session_outlet(participant_id)`) before any task runs
+- [ ] Launcher sends `session_start` marker immediately after outlet creation
 - [ ] Pre-flight checklist displayed in terminal (rich-formatted):
-  - Sentiometer streaming? (checks for LSL stream)
-  - EEG streaming? (checks for LSL stream)
+  - Sentiometer streaming? (checks for LSL stream on the network)
+  - EEG streaming? (checks for LSL stream on the network)
   - LabRecorder recording? (manual confirmation)
   - Participant ID entered?
   - Participant consented? (manual confirmation)
-- [ ] Runs tasks 01–05 in order
+- [ ] Runs tasks 01–05 in order, passing the shared outlet to each task's `run()` function
 - [ ] Between each task: pauses, shows "Task X complete. Press Enter to continue to Task Y."
 - [ ] Logs session metadata to `data/{participant_id}/session_log.json`: participant ID, date, task start/end times, any abort reasons
-- [ ] Graceful abort: Ctrl+C at any point saves partial data and logs abort reason
+- [ ] Launcher sends `session_end` marker after all tasks complete, then closes the outlet
+- [ ] Graceful abort: Ctrl+C at any point sends `session_end` marker, closes the outlet, saves partial data, and logs abort reason
 - [ ] `--skip-to N` flag: allows starting from task N (for recovery after crash)
 - [ ] `--demo` flag: passes `--demo` to all tasks
 

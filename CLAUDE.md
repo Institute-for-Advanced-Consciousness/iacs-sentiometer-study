@@ -6,11 +6,9 @@ This repository (`iacs-sentiometer-study`) contains **all software** for IACS Pr
 
 It serves two purposes under one roof:
 
-1. **Device layer** (`src/sentiometer/`): Python code to stream the Sentiometer's 6-channel optical signal over USB-serial into Lab Streaming Layer (LSL). This is the bridge between hardware and the rest of the data collection stack.
+1. **Device layer** (`src/sentiometer/`): Python code to stream the Sentiometer's 6-channel optical signal over USB-serial into Lab Streaming Layer (LSL). This code is **deployed on the Sentiometer's dedicated computer**, not on the task/stimulus machine. It lives in this repo for version control but runs independently.
 
-2. **Task layer** (`src/tasks/`): Five experimental paradigms plus a session launcher that guides the participant and experimenter through the full protocol in order. Each task emits LSL event markers synchronized with EEG, CGX AIM-2, and the Sentiometer stream.
-
-All streams converge in LabRecorder → XDF files. One XDF per paradigm block.
+2. **Task layer** (`src/tasks/`): Five experimental paradigms plus a session launcher that guides the participant and experimenter through the full protocol in order. The task suite runs on the stimulus computer (24" iMac) and emits LSL event markers through a single persistent marker stream. LabRecorder on the same network picks up this marker stream alongside the EEG, CGX AIM-2, and Sentiometer streams from their respective machines — all synced via LSL into one XDF per session.
 
 ---
 
@@ -148,7 +146,7 @@ Total on-site: ~4.25 hours.
 | Audio delivery | Sony XBA-100 in-ear headphones |
 | Duration | ~5 min |
 
-**LSL markers to emit**: `oddball_start`, `oddball_end`, `tone_standard`, `tone_deviant`, `response_hit`, `response_false_alarm`, `response_miss`
+**LSL markers to emit**: `task01_start`, `task01_end`, `task01_tone_standard`, `task01_tone_deviant`, `task01_response_hit`, `task01_response_false_alarm`, `task01_response_miss`
 
 **Primary endpoint**: Sentiometer signal change 250–350 ms post-deviant vs. post-standard, correlated with EEG P300 at Pz/Cz.
 
@@ -164,7 +162,7 @@ Total on-site: ~4.25 hours.
 | Task | Passive fixation |
 | Duration | ~10 min |
 
-**LSL markers**: `rgb_start`, `rgb_end`, `color_red`, `color_green`, `color_blue`
+**LSL markers**: `task02_start`, `task02_end`, `task02_color_red`, `task02_color_green`, `task02_color_blue`
 
 **Primary endpoint**: SVM decoding of R/G/B from Sentiometer features vs. 10,000-iteration permutation null. **Hypothesis is NULL** — we predict the Sentiometer cannot decode color. EEG decoding is the positive control.
 
@@ -182,7 +180,7 @@ Total on-site: ~4.25 hours.
 | Total trials | ~250–300 (including ~45–50 catch) |
 | Duration | ~10 min |
 
-**LSL markers**: `masking_start`, `masking_end`, `face_onset`, `mask_onset`, `catch_trial`, `response_seen`, `response_unseen`, `response_unsure`, `soa_value_XX` (where XX = ms)
+**LSL markers**: `task03_start`, `task03_end`, `task03_face_onset`, `task03_mask_onset`, `task03_catch_trial`, `task03_response_seen`, `task03_response_unseen`, `task03_response_unsure`, `task03_soa_value_XX` (where XX = ms)
 
 **Primary endpoint**: Sentiometer difference between "seen" and "unseen" at threshold SOAs. EEG VAN and P3b as positive controls.
 
@@ -197,7 +195,7 @@ Total on-site: ~4.25 hours.
 | Game | Custom Python rhythm-runner (Geometry Dash analog) |
 | Controls | Keyboard (spacebar / arrow keys) |
 | Display | 24" iMac via PsychoPy or Pygame |
-| LSL events | obstacle_appear, jump, collision, score_update |
+| LSL events | task04_obstacle_appear, task04_jump, task04_collision, task04_score_update |
 
 **Transition**: 1-min break with on-screen timer.
 
@@ -210,7 +208,7 @@ Total on-site: ~4.25 hours.
 | Eyes | Closed |
 | Experience | None required |
 
-**LSL markers**: `game_start`, `game_end`, `meditation_start`, `meditation_end`, `break_start`, `break_end`, plus all in-game events
+**LSL markers**: `task04_start`, `task04_end`, `task04_game_start`, `task04_game_end`, `task04_meditation_start`, `task04_meditation_end`, `task04_break_start`, `task04_break_end`, plus all in-game events (prefixed `task04_`)
 
 **Primary endpoint**: SVM classification (gameplay vs. meditation) from Sentiometer, vs. permutation null, after partialling out HRV and motion.
 
@@ -225,7 +223,7 @@ Total on-site: ~4.25 hours.
 | Task | Passive fixation, eyes open |
 | Duration | 5 min (300 s) |
 
-**LSL markers**: `ssvep_start`, `ssvep_end`, `freq_step_XX` (where XX = Hz, e.g., `freq_step_40`, `freq_step_39`, ...)
+**LSL markers**: `task05_start`, `task05_end`, `task05_freq_step_XX` (where XX = Hz, e.g., `task05_freq_step_40`, `task05_freq_step_39`, ...)
 
 **Primary endpoint**: No significant frequency-dependent modulation of Sentiometer (stability test). EEG SSVEP entrainment confirms stimulus effectiveness.
 
@@ -236,10 +234,17 @@ Total on-site: ~4.25 hours.
 ## Technical Standards
 
 ### LSL Conventions
-- **Sentiometer stream**: 6 channels (5 photodiodes + device timestamp), 500 Hz, type `EEG` (for LabRecorder compatibility), source_id `sentiometer_001`
-- **Marker streams**: Each task creates its own marker outlet. Stream type = `Markers`, channel format = `string`, nominal rate = 0.
-- **Stream naming**: `IACS_Sentiometer`, `IACS_Task01_Oddball_Markers`, `IACS_Task02_RGB_Markers`, etc.
+- **Session marker stream**: One persistent LSL outlet for the entire session. Created by the launcher at session start, closed at session end.
+  - Stream name: `P013_Task_Markers`
+  - Stream type: `Markers`
+  - Channel format: `cf_string`
+  - Nominal rate: 0
+  - Source ID: `P013_{participant_id}` (e.g., `P013_P001`)
+- **Marker naming**: All markers use a `taskNN_` prefix to identify which paradigm they belong to (e.g., `task01_tone_standard`, `task02_color_red`, `task04_game_start`). Session-level markers have no prefix: `session_start`, `session_end`.
+- **Session-level markers**: `session_start`, `session_end`, `task01_start`, `task01_end`, `task02_start`, `task02_end`, etc. — all sent through the same `P013_Task_Markers` stream.
+- **Architecture**: The launcher creates the outlet once, passes it to each task's `run()` function, and closes it after all tasks complete or on graceful abort. Tasks never create or destroy marker streams. In `--demo` mode (standalone testing), a task creates a temporary outlet for itself if none is provided.
 - **Timestamp**: Always use `pylsl.local_clock()` at the moment of the event, not after processing.
+- **Sentiometer stream**: Runs on a separate dedicated computer (see Hardware Reference). Not managed by this task suite. LabRecorder picks up the Sentiometer stream over the network alongside the task markers, EEG, and CGX streams.
 
 ### Display
 - **Target display**: 24" iMac, 60 Hz refresh
@@ -276,11 +281,14 @@ Total on-site: ~4.25 hours.
 
 `src/tasks/launcher.py` is the experimenter-facing interface. It:
 
-1. Displays a checklist of pre-session requirements (EEG impedances OK, Sentiometer streaming, LabRecorder recording)
-2. Runs each task in protocol order (01 → 05)
-3. Pauses between tasks for experimenter confirmation
-4. Logs session metadata (participant ID, date, task start/end times, any notes)
-5. Handles graceful abort (saves partial data, logs reason)
+1. Creates the `P013_Task_Markers` LSL outlet (one outlet for the entire session)
+2. Sends `session_start` marker
+3. Displays a checklist of pre-session requirements (EEG impedances OK, Sentiometer streaming, LabRecorder recording)
+4. Runs each task in protocol order (01 → 05), passing the shared marker outlet to each task's `run()` function
+5. Pauses between tasks for experimenter confirmation
+6. Logs session metadata (participant ID, date, task start/end times, any notes)
+7. Sends `session_end` marker and closes the outlet after all tasks complete
+8. Handles graceful abort (sends `session_end`, closes outlet, saves partial data, logs reason)
 
 CLI: `uv run python -m tasks.launcher --participant-id P001`
 
@@ -309,15 +317,17 @@ CLI: `uv run python -m tasks.launcher --participant-id P001`
 
 ## Hardware Reference
 
-| Device | Role | Interface |
-|--------|------|-----------|
-| Sentiometer | Optical consciousness signal | USB-Serial → Python → LSL |
-| BrainVision 64-ch EEG | Gold-standard neural recording | BrainVision Recorder → LSL |
-| CGX AIM-2 | EOG, chin EMG, HRV, respiration, GSR, SpO₂ | CGX software → LSL |
-| 24" iMac | Stimulus display | PsychoPy/Pygame |
-| Sony XBA-100 | Audio delivery | 3.5mm jack |
-| Ozlo Sleepbuds | Sleep-phase audio (nap only) | Bluetooth |
-| Mavogel eye mask | Light blocking (nap only) | N/A |
+| Device | Role | Interface | Computer |
+|--------|------|-----------|----------|
+| Sentiometer | Optical consciousness signal | USB-Serial → Python → LSL | **Dedicated Sentiometer laptop** (runs `src/sentiometer/` code) |
+| BrainVision 64-ch EEG | Gold-standard neural recording | BrainVision Recorder → LSL | EEG acquisition PC |
+| CGX AIM-2 | EOG, chin EMG, HRV, respiration, GSR, SpO₂ | CGX software → LSL | CGX acquisition PC |
+| 24" iMac | Stimulus display + task marker stream | PsychoPy/Pygame, `P013_Task_Markers` LSL | **Stimulus computer** (runs `src/tasks/` code) |
+| Sony XBA-100 | Audio delivery | 3.5mm jack | Connected to stimulus computer |
+| Ozlo Sleepbuds | Sleep-phase audio (nap only) | Bluetooth | N/A |
+| Mavogel eye mask | Light blocking (nap only) | N/A | N/A |
+
+**Network**: All LSL streams are discoverable on the same local network. LabRecorder (running on any machine) discovers and records all streams into a single XDF file.
 
 ---
 

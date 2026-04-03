@@ -20,7 +20,7 @@ Close and reopen your terminal after installing.
 ### 2. Clone and sync
 
 ```powershell
-git clone https://github.com/IACS-Research/iacs-sentiometer-study.git
+git clone https://github.com/Institute-for-Advanced-Consciousness/iacs-sentiometer-study.git
 cd iacs-sentiometer-study
 uv sync
 ```
@@ -61,6 +61,14 @@ uv run sentiometer stream --no-start-cmd
 
 # Debug mode (verbose logging)
 uv run sentiometer stream --debug
+
+# Test line ending variants (if device isn't responding)
+uv run sentiometer run --line-ending none
+uv run sentiometer run --line-ending cr
+
+# Raw byte dump (for debugging serial communication)
+uv run sentiometer debug-raw
+uv run sentiometer debug-raw --port COM3 --command "00005 2"
 ```
 
 The `run` command walks through 8 steps: entering participant info, detecting the device, testing the connection, verifying data flow, creating the LSL stream, and confirming LabRecorder sees it — all before handing off to the live streaming loop. Use this for data collection sessions.
@@ -74,8 +82,8 @@ serial USB (9600 baud, 8N1)
     │
     ▼
 ┌─────────────────┐
-│  pyserial        │  readline() → parse CSV → validate
-│  serial_reader   │
+│  pyserial        │  raw read → split on \r\n → parse CSV
+│  SerialBuffer    │
 └────────┬────────┘
          │ [float32 x 6]
          ▼
@@ -117,8 +125,9 @@ iacs-sentiometer-study/
 │   └── local.yaml             # Your machine's config (gitignored)
 ├── src/
 │   ├── sentiometer/           # Serial → LSL bridge
-│   │   ├── stream.py          # Core streaming logic
-│   │   └── cli.py             # CLI entry point
+│   │   ├── stream.py          # Core streaming logic + SerialBuffer
+│   │   ├── guided.py          # 8-step guided wizard for RAs
+│   │   └── cli.py             # CLI entry point (stream, run, ports, debug-raw)
 │   └── tasks/                 # Experimental paradigms
 │       ├── oddball/           # Auditory oddball / P300
 │       ├── rgb_illuminance/   # RGB illuminance test
@@ -141,7 +150,7 @@ The entire point of `uv sync` + `uv.lock` is that you get a byte-identical envir
 
 ```powershell
 # On the lab PC
-git clone https://github.com/IACS-Research/iacs-sentiometer-study.git
+git clone https://github.com/Institute-for-Advanced-Consciousness/iacs-sentiometer-study.git
 cd iacs-sentiometer-study
 uv sync
 
@@ -151,7 +160,8 @@ copy config\sentiometer.yaml config\local.yaml
 
 # Test
 uv run sentiometer ports
-uv run sentiometer stream --debug
+uv run sentiometer debug-raw          # verify raw bytes from device
+uv run sentiometer run                # full guided wizard
 ```
 
 ## Development with Claude Code
@@ -221,6 +231,8 @@ uv run mypy src/sentiometer/
 **"No serial ports detected"** — Check that the Sentiometer USB cable is connected and shows up in Device Manager under "Ports (COM & LPT)".
 
 **"Permission denied on COMx"** — Close CoolTerm or any other application that has the port open. Only one process can hold a serial port at a time.
+
+**"Delayed for NNNNNmsecs"** — The device is still in a recording session from a previous command. The wizard waits up to 60 seconds for this to clear automatically. If you're impatient, unplug the device, wait 30 seconds, and replug.
 
 **"Parse errors" in the log** — The first few lines after device start may be partial. The streamer skips these and counts them. If parse errors persist beyond the first second, check your baud rate setting.
 

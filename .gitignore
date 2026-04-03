@@ -41,3 +41,9 @@ data/
 # Secrets
 .env
 *.key
+
+# Machine-specific config
+config/local.yaml
+
+# Licensed stimuli (KDEF faces — see README)
+src/tasks/03_backward_masking/stimuli/

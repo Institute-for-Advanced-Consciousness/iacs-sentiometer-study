@@ -16,10 +16,10 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
-import serial
 import pylsl
+import serial
+import serial.tools.list_ports
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class StreamStats:
     parse_errors: int = 0
     dropped_samples: int = 0
     start_time: float = field(default_factory=time.monotonic)
-    last_device_ts: Optional[float] = None
+    last_device_ts: float | None = None
 
     @property
     def elapsed_sec(self) -> float:
@@ -111,6 +111,19 @@ PARITY_MAP = {
 }
 
 
+def auto_detect_port() -> str | None:
+    """Return the first serial port whose description contains 'USB Serial Device'.
+
+    Skips built-in ports (e.g. COM1) that are not USB devices.
+    Returns None if no match is found.
+    """
+    for p in sorted(serial.tools.list_ports.comports(), key=lambda x: x.device):
+        if "USB Serial Device" in (p.description or ""):
+            logger.info("Auto-detected serial port: %s (%s)", p.device, p.description)
+            return p.device
+    return None
+
+
 def open_serial(cfg: dict) -> serial.Serial:
     """Open and return a serial.Serial connection from config dict."""
     scfg = cfg["serial"]
@@ -122,27 +135,72 @@ def open_serial(cfg: dict) -> serial.Serial:
         stopbits=scfg["stopbits"],
         timeout=scfg["timeout_sec"],
     )
+    # Device requires DTR and RTS high before it will accept commands
+    conn.dtr = True
+    conn.rts = True
     logger.info("Serial connected: port=%s, baudrate=%d", scfg["port"], scfg["baudrate"])
     return conn
 
 
 def send_command(conn: serial.Serial, command: str, line_ending: str = "\r\n") -> None:
     """Send a command string to the device."""
+    # Pause before sending to let the device initialize after port open
+    logger.debug("Waiting 2s for device to initialize...")
+    time.sleep(2.0)
     payload = (command + line_ending).encode("ascii")
     conn.write(payload)
     logger.info("Sent command: %r (%d bytes)", command, len(payload))
-    # Brief pause to let the device process before it starts streaming
-    time.sleep(0.2)
+    # Pause after sending to let the device process the command
+    time.sleep(0.5)
+
+
+# ---------------------------------------------------------------------------
+# Buffered serial reader
+# ---------------------------------------------------------------------------
+
+class SerialBuffer:
+    """Read raw bytes from a serial port and split on \\r\\n.
+
+    This replaces pyserial's readline() which interacts badly with
+    timeout settings, DTR timing, and echo-discard logic.  Reading
+    raw bytes and splitting ourselves is deterministic.
+    """
+
+    def __init__(self, conn: serial.Serial) -> None:
+        self.conn = conn
+        self._buf = b""
+
+    def read_lines(self) -> list[bytes]:
+        """Return all complete \\r\\n-terminated lines available now.
+
+        Reads whatever bytes are waiting (or blocks for 1 byte if
+        nothing is buffered yet), appends to the internal buffer,
+        splits on \\r\\n, and returns complete lines.  Any trailing
+        fragment is kept for the next call.
+        """
+        chunk = self.conn.read(self.conn.in_waiting or 1)
+        if not chunk:
+            return []
+        self._buf += chunk
+        # Split on \r\n; last element is the incomplete tail
+        parts = self._buf.split(b"\r\n")
+        self._buf = parts[-1]  # keep incomplete fragment
+        # Everything except the last element is a complete line
+        return [p for p in parts[:-1] if p]
+
+    def clear(self) -> None:
+        """Discard the internal buffer."""
+        self._buf = b""
 
 
 # ---------------------------------------------------------------------------
 # Parse a single line
 # ---------------------------------------------------------------------------
 
-def parse_line(raw: bytes, expected_n: int = 6) -> Optional[list[float]]:
-    """
-    Parse a raw serial line into a list of floats.
-    Returns None on any parse failure (malformed, wrong column count, etc.).
+def parse_line(raw: bytes, expected_n: int = 6) -> list[float] | None:
+    """Parse a raw serial line into a list of floats.
+
+    Returns None on any parse failure.
     """
     try:
         text = raw.decode("ascii", errors="replace").strip()
@@ -177,11 +235,22 @@ def run_stream(cfg: dict, send_start: bool = True) -> None:
     interval_ms = cfg["device"]["sample_interval_ms"]
     status_every = cfg["logging"]["status_every_n_samples"]
 
+    # --- Auto-detect port if not specified ---
+    if not cfg["serial"].get("port"):
+        detected = auto_detect_port()
+        if detected:
+            cfg["serial"]["port"] = detected
+        else:
+            logger.warning(
+                "No USB Serial Device found; falling back to config port."
+            )
+
     # --- Connect serial ---
     conn = open_serial(cfg)
-
-    # --- Flush any stale bytes ---
     conn.reset_input_buffer()
+
+    # --- Buffered reader ---
+    buf = SerialBuffer(conn)
 
     # --- Send start command ---
     if send_start:
@@ -190,7 +259,7 @@ def run_stream(cfg: dict, send_start: bool = True) -> None:
             cfg["device"]["start_command"],
             cfg["serial"].get("line_ending", "\r\n"),
         )
-        logger.info("Waiting for first sample...")
+        logger.info("Command sent. Waiting for data...")
     else:
         logger.info("Skipping start command (--no-start-cmd). Waiting for data...")
 
@@ -201,39 +270,37 @@ def run_stream(cfg: dict, send_start: bool = True) -> None:
     # --- Main loop ---
     try:
         while True:
-            raw_line = conn.readline()
-            if not raw_line:
-                # Timeout — no data received within timeout_sec
+            lines = buf.read_lines()
+            if not lines:
                 continue
 
-            values = parse_line(raw_line, expected_n)
-            if values is None:
-                stats.parse_errors += 1
-                if stats.parse_errors <= 10:
-                    logger.warning("Parse error #%d: %r", stats.parse_errors, raw_line[:80])
-                continue
+            for raw_line in lines:
+                values = parse_line(raw_line, expected_n)
+                if values is None:
+                    stats.parse_errors += 1
+                    continue
 
-            # --- Dropped sample detection ---
-            device_ts = values[0]
-            if stats.last_device_ts is not None:
-                gap = device_ts - stats.last_device_ts
-                expected_gap = interval_ms
-                if gap > expected_gap * 1.5:
-                    n_dropped = int(gap / expected_gap) - 1
-                    stats.dropped_samples += n_dropped
-                    logger.warning(
-                        "Gap detected: %.0fms (expected %dms) — ~%d dropped samples at device_ts=%.0f",
-                        gap, expected_gap, n_dropped, device_ts,
-                    )
-            stats.last_device_ts = device_ts
+                # --- Dropped sample detection ---
+                device_ts = values[0]
+                if stats.last_device_ts is not None:
+                    gap = device_ts - stats.last_device_ts
+                    if gap > interval_ms * 1.5:
+                        n_dropped = int(gap / interval_ms) - 1
+                        stats.dropped_samples += n_dropped
+                        logger.warning(
+                            "Gap detected: %.0fms (expected %dms) "
+                            "— ~%d dropped samples at device_ts=%.0f",
+                            gap, interval_ms, n_dropped, device_ts,
+                        )
+                stats.last_device_ts = device_ts
 
-            # --- Push to LSL ---
-            outlet.push_sample(values)
-            stats.samples_pushed += 1
+                # --- Push to LSL ---
+                outlet.push_sample(values)
+                stats.samples_pushed += 1
 
-            # --- Periodic status ---
-            if stats.samples_pushed % status_every == 0:
-                logger.info(stats.summary())
+                # --- Periodic status ---
+                if stats.samples_pushed % status_every == 0:
+                    logger.info(stats.summary())
 
     except KeyboardInterrupt:
         logger.info("Stopped by user (Ctrl+C).")

@@ -268,6 +268,7 @@ def run_stream(cfg: dict, send_start: bool = True) -> None:
     logger.info("LSL outlet is live. Open LabRecorder to begin capturing.")
 
     # --- Main loop ---
+    first_sample = True
     try:
         while True:
             lines = buf.read_lines()
@@ -278,6 +279,12 @@ def run_stream(cfg: dict, send_start: bool = True) -> None:
                 values = parse_line(raw_line, expected_n)
                 if values is None:
                     stats.parse_errors += 1
+                    continue
+
+                # Skip first parsed line (likely a partial fragment)
+                if first_sample:
+                    logger.debug("Discarding first sample (partial line): %r", raw_line[:80])
+                    first_sample = False
                     continue
 
                 # --- Dropped sample detection ---

@@ -676,12 +676,22 @@ def run_guided(cfg: dict, port_override: str | None = None) -> None:
     )
     console.print()
 
+    first_sample = True
     try:
         while True:
             for raw in buf.read_lines():
                 values = parse_line(raw, expected_n)
                 if values is None:
                     stats.parse_errors += 1
+                    continue
+
+                # Skip first parsed line (likely a partial fragment)
+                if first_sample:
+                    logger.debug(
+                        "Discarding first sample (partial line): %r",
+                        raw[:80],
+                    )
+                    first_sample = False
                     continue
 
                 # Dropped sample detection

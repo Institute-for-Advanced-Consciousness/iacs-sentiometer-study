@@ -80,7 +80,7 @@ All LSL streams are discoverable on the same local network; LabRecorder picks up
 1. **Validate setup**: `uv run python scripts/validate_setup.py` — all green required checks.
 2. **Launch the Sentiometer** on the dedicated laptop (`uv run sentiometer run`) and confirm it's pushing samples to the network.
 3. **Launch LabRecorder** and confirm it sees `Sentiometer`, the EEG stream, the CGX stream. You'll also tick the `P013_Task_Markers` stream once the launcher creates it.
-4. **Launch the Vayl desktop app** on the stimulus iMac so Task 05 can drive it. If you skip this, Tasks 01–04 still run, but Task 05 will fail in production.
+4. **Launch the Vayl desktop app** on the stimulus iMac so Task 05 can drive it. If Vayl isn't installed yet, grab the installer from the lab shared drive at `[path TBD]` or contact the Vayl team directly. Vayl must be running **before** launching the session. If you skip this, Tasks 01–04 still run, but Task 05 will fail in production.
 5. **Start the launcher**: `uv run python -m tasks.launcher --participant-id P0XX` and walk through the pre-flight flow. The launcher prints a final "Is LabRecorder running and recording?" prompt before the first task.
 
 ---

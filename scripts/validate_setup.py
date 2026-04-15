@@ -271,7 +271,10 @@ def check_vayl_reachable() -> CheckResult:
         return CheckResult(
             "Vayl app (localhost:9471)",
             "WARN",
-            f"not reachable ({exc}); needed for Task 05 only",
+            (
+                f"not reachable ({exc}); needed for Task 05 only "
+                "(Install from lab shared drive)"
+            ),
             required=False,
         )
 

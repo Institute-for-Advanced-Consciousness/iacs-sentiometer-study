@@ -1,0 +1,48 @@
+# P013 Session Configuration
+# Default values match IRB protocol. Edit before session if needed.
+# Changes here are picked up by the launcher GUI at session start.
+
+session:
+  participant_id: ""  # Set at launch
+  session_date: ""    # Auto-filled
+
+task01_oddball:
+  total_trials: 250
+  deviant_probability: 0.20
+  isi_min_ms: 1100
+  isi_max_ms: 1500
+  tone_duration_ms: 100
+  rise_fall_ms: 10
+  response_window_ms: 1000
+  volume: 1.0
+  max_consecutive_standards: 3
+
+task02_rgb_illuminance:
+  trials_per_color: 100
+  trial_duration_min_s: 1.6
+  trial_duration_max_s: 2.6
+  colors: ["red", "green", "blue"]
+
+task03_backward_masking:
+  total_trials: 275
+  catch_trial_proportion: 0.17
+  mask_duration_ms: 200
+  fixation_duration_ms: 500
+  response_window_ms: 1000
+  staircase_start_soa_ms: 100
+  staircase_step_down_ms: 8
+  staircase_step_up_ms: 8
+  target_threshold: 0.50
+
+task04_mind_state:
+  game_duration_s: 300
+  break_duration_s: 60
+  meditation_duration_s: 300
+  game_start_speed: 1.0
+  game_max_speed: 2.5
+
+task05_ssvep:
+  freq_start_hz: 40
+  freq_end_hz: 1
+  freq_step_hz: 1
+  step_duration_s: 7.5

@@ -66,9 +66,11 @@ This document defines every action item for building the Sentiometer study task 
 - [ ] Text is readable (white on dark, ~24pt, centered)
 
 **Acceptance Criteria for `config.py`**:
-- [ ] `load_task_config(task_dir: str) -> dict` loads the task's `config.yaml`
-- [ ] CLI overrides (passed as dict) merge on top of YAML defaults
-- [ ] Missing config file raises a clear error
+- [ ] All configurable task parameters live in a single master file: `config/session_defaults.yaml`. There are no per-task config files.
+- [ ] `load_session_config(config_path=".../session_defaults.yaml") -> dict` loads the master config from disk. Relative paths resolve against the repo root. Missing file raises a clear error.
+- [ ] `get_task_config(session_config, task_name, overrides=None) -> dict` returns a **copy** of one task's section so caller mutations (e.g. demo overrides) don't leak into the master dict. Unknown `task_name` raises `KeyError` listing available sections.
+- [ ] `overrides` dict merges on top of the task section; `None` values in the overrides dict are skipped (so unprovided CLI flags don't clobber defaults).
+- [ ] `session_defaults.yaml` ships with the repo; its default values match the IRB protocol exactly and contain a section for every task (`task01_oddball` … `task05_ssvep`) plus a top-level `session:` block.
 
 ---
 
@@ -80,7 +82,7 @@ This document defines every action item for building the Sentiometer study task 
 
 **Acceptance Criteria**:
 - [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
-- [ ] `config.yaml` contains all parameters from IRB (frequencies, durations, ISI range, trial counts, ratio)
+- [ ] Task reads its config section from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task01_oddball")` — no per-task config file
 - [ ] Pre-generated .wav files for 1000 Hz and 2000 Hz tones (100 ms total, 10 ms raised-cosine rise/fall, 44.1 kHz, 16-bit) in `assets/sounds/`
 - [ ] `scripts/generate_tones.py` produces these files reproducibly
 - [ ] Trial sequence: pseudorandom with constraint that no more than 3 consecutive standards occur between deviants
@@ -98,7 +100,7 @@ This document defines every action item for building the Sentiometer study task 
 
 **Acceptance Criteria**:
 - [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
-- [ ] `config.yaml` contains: trial counts per color, ISI range (1.6–2.6 s), constraint (no consecutive same color)
+- [ ] Task reads its config section from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task02_rgb_illuminance")`; the shipped section contains `trials_per_color`, `trial_duration_min_s`, `trial_duration_max_s`, and `colors`. The no-consecutive-same-color constraint is hardcoded because it defines the paradigm.
 - [ ] Trial sequence: pseudorandom permutation with no-repeat constraint verified
 - [ ] Full-screen solid color fills entire display (no borders, no taskbar)
 - [ ] Central fixation cross rendered on all color screens (thin white cross)
@@ -115,7 +117,7 @@ This document defines every action item for building the Sentiometer study task 
 
 **Acceptance Criteria**:
 - [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
-- [ ] `config.yaml` contains: target duration (1 frame = ~17 ms), mask duration (200 ms), fixation duration (500 ms), response window (~1 s), catch trial proportion (~17%), staircase parameters
+- [ ] Task reads its config section from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task03_backward_masking")`; the shipped section contains `total_trials`, `catch_trial_proportion`, `mask_duration_ms`, `fixation_duration_ms`, `response_window_ms`, and all staircase parameters (`staircase_start_soa_ms`, `staircase_step_down_ms`, `staircase_step_up_ms`, `target_threshold`). The 1-frame target duration is hardcoded because it's dictated by the display refresh rate.
 - [ ] Adaptive staircase: 2-down/1-up or QUEST procedure converging on ~50% detection threshold
 - [ ] SOA starts at a clearly visible level (e.g., 100 ms) and adapts per participant
 - [ ] Stimuli: neutral KDEF faces loaded from `stimuli/` directory; clear error if directory is empty/missing
@@ -135,6 +137,7 @@ This document defines every action item for building the Sentiometer study task 
 
 **Acceptance Criteria — General**:
 - [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
+- [ ] Task reads its config section from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task04_mind_state")`; the shipped section contains `game_duration_s`, `break_duration_s`, `meditation_duration_s`, `game_start_speed`, and `game_max_speed`. Block order (game → break → meditation), game mechanics, and meditation instruction text are hardcoded because they define the paradigm.
 - [ ] All LSL markers prefixed with `task04_`
 
 **Acceptance Criteria — Game (Block 1)**:
@@ -170,7 +173,7 @@ This document defines every action item for building the Sentiometer study task 
 
 **Acceptance Criteria**:
 - [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
-- [ ] `config.yaml` contains: frequency range (40–1), step duration (7.5 s), total steps (40), total duration (300 s)
+- [ ] Task reads its config section from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task05_ssvep")`; the shipped section contains `freq_start_hz`, `freq_end_hz`, `freq_step_hz`, and `step_duration_s`. Total step count and total duration are derived at runtime.
 - [ ] Flickering checkerboard pattern with fixation cross overlaid
 - [ ] Flicker is frame-accurate: for each target frequency, compute the optimal on/off frame pattern given 60 Hz refresh
 - [ ] **Known limitation documented**: frequencies above 30 Hz cannot be accurately rendered on a 60 Hz display. Document which frequencies are achievable and which are approximated. Consider: at 60 Hz refresh, 40 Hz flicker is physically impossible (Nyquist). Note this in config and in the CLAUDE.md.
@@ -213,6 +216,12 @@ This must be discussed with Nicco before implementation. For now, implement with
 - [ ] **LabRecorder confirmation** checkbox: manual tick to confirm LabRecorder is recording all four streams. GUI prints the exact stream names next to the checkbox so RAs can cross-reference them.
 - [ ] All stream checks re-runnable without restarting the GUI.
 
+**Acceptance Criteria — session config panel**:
+- [ ] Launcher loads `config/session_defaults.yaml` at startup via `load_session_config()` and displays a summary table of all task parameters grouped by task, with the current values.
+- [ ] An **Edit** affordance (inline table or modal) lets the RA modify any value before the session begins. Edited values are typed-checked against the defaults (int/float/bool/list) and used for *this session only*; the on-disk defaults file is never overwritten.
+- [ ] Applying `--demo` overrides short-form values (e.g. `total_trials = 20` for oddball, `step_duration_s = 1.0` for SSVEP) on top of the loaded config without mutating the master dict.
+- [ ] The per-task dict is passed into each task's `run()` function so tasks never reload the YAML themselves.
+
 **Acceptance Criteria — session controls**:
 - [ ] **Start Session** button disabled until: participant ID valid, marker stream created, Sentiometer check green, EEG check green, CGX check green, LabRecorder checkbox ticked
 - [ ] On Start: GUI sends `session_start` marker, closes the setup window, and hands control to the session runtime
@@ -234,7 +243,7 @@ This must be discussed with Nicco before implementation. For now, implement with
 
 **Acceptance Criteria**:
 - [ ] `test_markers.py`: verify each task's marker names match the spec in CLAUDE.md
-- [ ] `test_task_configs.py`: verify each config.yaml loads and contains all required parameters
+- [ ] `test_task_configs.py`: verify `config/session_defaults.yaml` loads, that every task section is present, and that overrides merge without mutating the master dict
 - [ ] `test_sentiometer.py`: existing device tests still pass
 - [ ] All tests pass with `uv run pytest`
 

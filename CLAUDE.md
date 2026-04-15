@@ -34,7 +34,8 @@ iacs-sentiometer-study/
 ├── pyproject.toml               # uv/pip project config, all dependencies
 ├── config/
 │   ├── sentiometer.yaml         # Default device config (committed)
-│   └── local.yaml               # Machine-specific overrides (gitignored)
+│   ├── local.yaml               # Machine-specific overrides (gitignored)
+│   └── session_defaults.yaml    # Master session config — every tunable task parameter lives here
 ├── src/
 │   ├── sentiometer/             # DEVICE LAYER
 │   │   ├── __init__.py
@@ -44,36 +45,33 @@ iacs-sentiometer-study/
 │   │   └── config.py            # YAML config loader
 │   └── tasks/                   # TASK LAYER
 │       ├── __init__.py
-│       ├── launcher.py          # Session launcher / task sequencer
+│       ├── launcher.py          # Session runtime (headless, testable)
+│       ├── launcher_gui.py      # Tkinter pre-session GUI (entry point)
 │       ├── common/              # Shared utilities across all tasks
 │       │   ├── __init__.py
 │       │   ├── lsl_markers.py   # LSL marker stream creation & event sending
 │       │   ├── display.py       # PsychoPy window management & shared display utils
 │       │   ├── instructions.py  # Instruction screen rendering
-│       │   └── config.py        # Task configuration loader
+│       │   ├── audio.py         # Audio playback + pre-session sound check
+│       │   └── config.py        # Session config loader (master YAML)
 │       ├── 01_oddball/          # Auditory Oddball / P300
 │       │   ├── __init__.py
-│       │   ├── task.py          # Main task script
-│       │   └── config.yaml      # Paradigm-specific parameters
+│       │   └── task.py          # Main task script
 │       ├── 02_rgb_illuminance/  # RGB Illuminance / Visual Qualia Decoding
 │       │   ├── __init__.py
-│       │   ├── task.py
-│       │   └── config.yaml
+│       │   └── task.py
 │       ├── 03_backward_masking/ # Backward Masking / Face Detection
 │       │   ├── __init__.py
 │       │   ├── task.py
-│       │   ├── config.yaml
 │       │   └── stimuli/         # KDEF face images + Mondrian masks (gitignored, see README)
 │       ├── 04_mind_state/       # Mind-State Switching (Gameplay + Meditation)
 │       │   ├── __init__.py
 │       │   ├── task.py          # Orchestrator for both blocks
 │       │   ├── game.py          # Custom Geometry Dash clone with LSL markers
-│       │   ├── meditation.py    # Meditation timer with LSL markers
-│       │   └── config.yaml
+│       │   └── meditation.py    # Meditation timer with LSL markers
 │       └── 05_ssvep/            # SSVEP Frequency Ramp-Down
 │           ├── __init__.py
-│           ├── task.py
-│           └── config.yaml
+│           └── task.py
 ├── assets/                      # Shared stimulus assets
 │   ├── sounds/                  # Oddball tones (1000Hz, 2000Hz .wav files)
 │   ├── images/                  # Fixation crosses, instruction screens
@@ -128,6 +126,29 @@ Cleanup & debrief
 ```
 
 Total on-site: ~4.25 hours.
+
+---
+
+## Session Configuration
+
+**All configurable task parameters live in a single master YAML file**: `config/session_defaults.yaml`. There are no per-task config files. Each task's `run()` function receives only the dict for its own section (e.g. `task01_oddball`), extracted via `tasks.common.config.get_task_config()`.
+
+- **Defaults match the IRB protocol.** The values shipped in the repo reproduce the IRB specification line-for-line. Any edit to this file for a real session is logged (via git or experimenter notes) so we always know what was run.
+- **Launcher shows a summary before the session.** At startup, the Tkinter launcher GUI loads `session_defaults.yaml`, displays a per-task summary table with the current values, and provides an **Edit** affordance so the RA can adjust any value for *this session only*. Edits are held in memory and passed into the tasks; they do **not** overwrite the on-disk defaults file.
+- **Demo mode overrides automatically.** When `--demo` is set, the launcher applies short-form overrides (e.g. `total_trials = 20`, `step_duration_s = 1.0`) on top of the loaded config. The master YAML is never mutated.
+- **Programmatic overrides.** Any caller (launcher, task `--demo` standalone mode, test) can pass an `overrides` dict to `get_task_config(session_cfg, "task01_oddball", overrides={"total_trials": 10})`. Overrides merge on top of the in-memory copy for that call only.
+
+### Configurable vs. fixed parameters
+
+Parameters that **define the paradigm** are hardcoded in the task script, not in the YAML. Changing them would break the science, so they are not surfaced as knobs. Parameters that tune the dose, timing, or scope of a paradigm are configurable.
+
+| Task | Configurable (`session_defaults.yaml`) | Fixed (hardcoded in task script) |
+|---|---|---|
+| 01 Oddball | total_trials, deviant_probability, ISI range, tone duration, rise/fall, response window, volume, max consecutive standards | Tone frequencies (1000 / 2000 Hz), target dB SPL, audio file names, active button-press task instruction |
+| 02 RGB | trials_per_color, trial duration range, colors list | Fixation cross geometry, no-consecutive-same-color constraint, pure-RGB values |
+| 03 Masking | total_trials, catch trial proportion, mask/fixation/response durations, staircase parameters, target threshold | 3-point response scheme, trial structure order, KDEF stimulus set, single-frame target duration |
+| 04 Mind-State | game/break/meditation durations, game start/max speed | Two-block order (game → break → meditation), game mechanics, meditation instruction text, eyes-closed condition |
+| 05 SSVEP | freq range, freq step, step duration | Checkerboard stimulus, continuous transitions (no gap), fixation cross overlay, passive-fixation task |
 
 ---
 

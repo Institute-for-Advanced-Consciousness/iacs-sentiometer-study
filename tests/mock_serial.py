@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import random
 import time
-from typing import Optional
 
 
 class MockSentiometer:
@@ -66,7 +65,7 @@ class MockSentiometer:
         # Simulate occasional dropped samples
         if random.random() < self.drop_probability:
             self.device_ts += self.sample_interval_ms  # skip one
-        
+
         self.device_ts += self.sample_interval_ms
 
         values = [self.device_ts]

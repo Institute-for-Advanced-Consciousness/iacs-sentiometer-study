@@ -41,8 +41,7 @@ iacs-sentiometer-study/
 │   │   ├── __init__.py
 │   │   ├── cli.py               # Click CLI entry point (`sentiometer` command)
 │   │   ├── stream.py            # Serial → LSL bridge (core streaming loop)
-│   │   ├── guided.py            # Guided setup wizard
-│   │   └── config.py            # YAML config loader
+│   │   └── guided.py            # Guided setup wizard
 │   └── tasks/                   # TASK LAYER
 │       ├── __init__.py
 │       ├── launcher.py          # Rich+click terminal launcher (single entry point)
@@ -78,12 +77,21 @@ iacs-sentiometer-study/
 │   └── fonts/                   # If needed for task displays
 ├── scripts/                     # One-off utilities
 │   ├── generate_tones.py        # Create calibrated oddball stimuli
-│   ├── generate_mondrians.py    # Create Mondrian mask images
-│   └── validate_setup.py        # Pre-session hardware check
-├── tests/                       # pytest tests
-│   ├── test_sentiometer.py
-│   ├── test_markers.py
-│   └── test_task_configs.py
+│   ├── generate_mondrians.py    # Create 100 Mondrian mask images
+│   ├── validate_setup.py        # Pre-session hardware/software check
+│   ├── diagnose_serial.py       # Sentiometer serial debugging helper
+│   └── start_stream.py          # Sentiometer device-layer quick launcher
+├── tests/                       # pytest suite (85 tests)
+│   ├── test_stream.py           # Sentiometer serial parser tests
+│   ├── test_markers.py          # LSL marker stream tests
+│   ├── test_task_configs.py     # session_defaults.yaml loader tests
+│   ├── test_task01_oddball.py   # Task 01 pure helpers + simulated run
+│   ├── test_task02_rgb_illuminance.py
+│   ├── test_task03_backward_masking.py
+│   ├── test_task04_mind_state.py
+│   ├── test_task05_ssvep.py
+│   ├── test_launcher.py         # Launcher orchestration tests
+│   └── mock_serial.py           # Hardware-free serial emulator
 ├── data/                        # gitignored — local data storage during collection
 ├── .gitignore
 └── README.md

@@ -1,7 +1,6 @@
 """Tests for sentiometer.stream parsing and statistics."""
 
-import pytest
-from sentiometer.stream import parse_line, StreamStats
+from sentiometer.stream import StreamStats, parse_line
 
 
 class TestParseLine:

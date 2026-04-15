@@ -15,7 +15,7 @@ task01_oddball:
   rise_fall_ms: 10
   response_window_ms: 1000
   volume: 1.0
-  max_consecutive_standards: 3
+  max_consecutive_standards: 4  # min feasible for 200/50 split = ceil(200/51) = 4
   # Practice gate (run before main task; repeats until participant passes)
   practice_trials: 10
   practice_deviants: 2

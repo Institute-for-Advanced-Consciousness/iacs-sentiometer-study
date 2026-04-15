@@ -121,20 +121,44 @@ This document defines every action item for building the Sentiometer study task 
 
 ### 1.2 — Task 02: RGB Illuminance Test
 
-**What**: 300 full-screen color trials (100 R / 100 G / 100 B), passive fixation. ~10 min.
+**What**: 300 full-screen color trials (100 R / 100 G / 100 B), passive fixation, gray ITI between colors, two 30 s rest breaks splitting the run into three blocks. ~10 min total.
 
-**Acceptance Criteria**:
-- [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
-- [ ] Task reads its config section from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task02_rgb_illuminance")`; the shipped section contains `trials_per_color`, `trial_duration_min_s`, `trial_duration_max_s`, and `colors`. The no-consecutive-same-color constraint is hardcoded because it defines the paradigm.
-- [ ] Trial sequence: pseudorandom permutation with no-repeat constraint verified
-- [ ] Full-screen solid color fills entire display (no borders, no taskbar)
-- [ ] Central fixation cross rendered on all color screens (thin white cross)
-- [ ] ISI jittered uniformly 1.6–2.6 s
-- [ ] No black/blank screens between colors — direct color-to-color transitions
-- [ ] LSL markers (all prefixed `task02_`): `task02_start`, `task02_end`, `task02_color_red`, `task02_color_green`, `task02_color_blue` at frame flip
-- [ ] `--demo` mode: 15 trials (5 each), completes in <30 seconds. Creates its own temporary outlet if none is passed.
-- [ ] Behavioral log: CSV with `trial, color, onset_time, duration_s`
-- [ ] Color values are pure (R=255,0,0; G=0,255,0; B=0,0,255) — confirm on display with colorimeter or at minimum document the RGB values used
+**Acceptance Criteria — wiring**:
+- [ ] `run(outlet, config, ...)` accepts the shared session marker outlet; does NOT create or destroy any session-level LSL streams. If `outlet` is `None`, the task creates a temporary demo outlet via `create_demo_outlet()` and tears it down at the end.
+- [ ] Task reads its config from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task02_rgb_illuminance")`. The shipped section contains `trials_per_color`, `trial_duration_min_s`, `trial_duration_max_s`, `colors`, `iti_duration_ms`, `break_interval_trials`, and `break_duration_s`.
+- [ ] Side-effecting I/O bundled into a `TaskIO` dataclass; PsychoPy imported lazily in `_build_psychopy_io`.
+
+**Acceptance Criteria — stimuli & timing**:
+- [ ] Full-screen pure colors: red `(255,0,0)`, green `(0,255,0)`, blue `(0,0,255)` rendered with `colorSpace='rgb255'` and full-screen rects in normalized coordinates.
+- [ ] Central white fixation cross rendered on every color frame *and* every ITI frame.
+- [ ] Trial duration jittered uniformly in `[trial_duration_min_s, trial_duration_max_s]` (defaults 1.2–2.0 s, mean ~1.6 s).
+- [ ] After each color, a 200 ms medium-gray `(128,128,128)` screen with the fixation cross is shown — **not** black/blank — to suppress contrast flashes and afterimages.
+- [ ] Trial sequence: pseudorandom via the `build_color_sequence` "max-remaining" greedy algorithm; no two consecutive same colors. Verified by tests across multiple seeds.
+
+**Acceptance Criteria — breaks**:
+- [ ] After every `break_interval_trials` trials (default 100), a break fires unless the trial is the last one. With 300 trials this gives breaks after trial 100 and trial 200 only.
+- [ ] Break screen: gray background + fixation cross + "Take a moment to rest your eyes. The task will continue in N seconds." with a per-second countdown.
+- [ ] Break is 30 s by default; auto-resumes (no keypress required).
+- [ ] Demo mode uses an explicit `break_after_trials = [5]` override so exactly one break fires after trial 5 regardless of the modular interval.
+
+**Acceptance Criteria — LSL markers** (all prefixed `task02_`, 10 distinct types):
+- [ ] Session boundaries: `task02_start`, `task02_end`
+- [ ] Instructions: `task02_instructions_start`, `task02_instructions_end`
+- [ ] Stimulus per trial: `task02_color_red` / `task02_color_green` / `task02_color_blue` at the color flip, `task02_iti` at the gray ITI flip
+- [ ] Breaks: `task02_break_start`, `task02_break_end`
+
+**Acceptance Criteria — demo & logging**:
+- [ ] `demo=True`: 5 trials per color (15 total), 1 break after trial 5, faster trial durations (0.5–0.8 s) and a 3 s break so the run completes in well under 30 s. Creates its own outlet if none is passed.
+- [ ] Behavioral log saved to `data/{participant_id}/task02_rgb_illuminance_*.csv` with columns: `trial_number, color, color_rgb, onset_time, offset_time, duration_s, iti_onset_time`.
+- [ ] `color_rgb` is logged as the literal `"r,g,b"` integer triple actually rendered; analysis code can audit pure-RGB compliance against this column.
+- [ ] Display gamma / panel fidelity confirmation against the logged RGB values is deferred to Phase 3.3 (colorimeter).
+
+**Acceptance Criteria — tests**:
+- [ ] `tests/test_task02_rgb_illuminance.py` loads the task via `importlib.import_module("tasks.02_rgb_illuminance.task")`.
+- [ ] `build_color_sequence` is unit-tested across multiple seeds for: per-color counts, length, no-consecutive constraint at full size and at demo size, deterministic seeding.
+- [ ] `is_break_trial` is unit-tested for the explicit-list path, the modular-interval path (excluding the last trial), and the zero-interval no-op path.
+- [ ] An end-to-end simulated run with a mock `TaskIO` exercises 9 trials with two explicit breaks, captures markers via a real LSL inlet, and asserts every marker type from the spec appears with the correct counts and ordering, that the recorded color sequence has no consecutive repeats, and that every CSV row's `color_rgb` is one of the three pure values.
+- [ ] A demo-mode test verifies exactly one break fires (after trial 5) with 5 colors before and 10 after.
 
 ### 1.3 — Task 03: Backward Masking (Face Detection)
 

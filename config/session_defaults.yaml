@@ -24,9 +24,12 @@ task01_oddball:
 
 task02_rgb_illuminance:
   trials_per_color: 100
-  trial_duration_min_s: 1.6
-  trial_duration_max_s: 2.6
+  trial_duration_min_s: 1.2
+  trial_duration_max_s: 2.0
   colors: ["red", "green", "blue"]
+  iti_duration_ms: 200          # gray screen + fixation between colors
+  break_interval_trials: 100    # break every N trials (after trial 100, 200; not 300)
+  break_duration_s: 30
 
 task03_backward_masking:
   total_trials: 275

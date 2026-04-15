@@ -145,7 +145,7 @@ Parameters that **define the paradigm** are hardcoded in the task script, not in
 | Task | Configurable (`session_defaults.yaml`) | Fixed (hardcoded in task script) |
 |---|---|---|
 | 01 Oddball | total_trials, deviant_probability, ISI range, tone duration, rise/fall, response window, volume, max consecutive standards, practice_trials, practice_deviants, practice_hit_threshold, practice_fa_ceiling | Tone frequencies (1000 / 2000 Hz), target dB SPL, audio file names, active button-press task instruction, practice-then-main lifecycle |
-| 02 RGB | trials_per_color, trial duration range, colors list | Fixation cross geometry, no-consecutive-same-color constraint, pure-RGB values |
+| 02 RGB | trials_per_color, trial duration range, colors list, iti_duration_ms, break_interval_trials, break_duration_s | Fixation cross geometry, no-consecutive-same-color constraint, pure-RGB values, gray-ITI design, passive (no-response) task structure |
 | 03 Masking | total_trials, catch trial proportion, mask/fixation/response durations, staircase parameters, target threshold | 3-point response scheme, trial structure order, KDEF stimulus set, single-frame target duration |
 | 04 Mind-State | game/break/meditation durations, game start/max speed | Two-block order (game → break → meditation), game mechanics, meditation instruction text, eyes-closed condition |
 | 05 SSVEP | freq range, freq step, step duration | Checkerboard stimulus, continuous transitions (no gap), fixation cross overlay, passive-fixation task |
@@ -198,15 +198,26 @@ Practice-phase responses are tracked in the behavioral CSV but **not** emitted a
 
 | Parameter | Value |
 |-----------|-------|
-| Stimuli | Full-screen solid R, G, or B on 24" iMac |
-| Fixation | Central cross overlaid on all screens |
+| Stimuli | Full-screen pure R (255,0,0), G (0,255,0), B (0,0,255) on 24" iMac |
+| Fixation | Central white cross overlaid on color *and* on the ITI |
 | Trials | 300 total (100 each color) |
-| Trial duration | 1.6–2.6 s jittered (mean ~2 s) |
-| Constraint | No consecutive same color |
-| Task | Passive fixation |
-| Duration | ~10 min |
+| Trial duration | 1.2–2.0 s jittered (mean ~1.6 s) |
+| ITI | 200 ms medium-gray (128,128,128) + fixation between every color |
+| Constraint | No consecutive same color (max-remaining greedy placement) |
+| Task | Passive fixation, no responses required |
+| Breaks | 30 s rest after trial 100 and trial 200 (auto-resume; no keypress) |
+| Duration | ~10 min total (3 × ~3 min color blocks + 2 × 30 s breaks) |
 
-**LSL markers**: `task02_start`, `task02_end`, `task02_color_red`, `task02_color_green`, `task02_color_blue`
+**Why a gray ITI?** Going directly between saturated colors creates a high-contrast flash and prominent retinal afterimages that contaminate the optical signal. A brief medium-gray screen with the fixation cross in place eases the transition without forcing a black-screen interruption.
+
+### LSL markers (all prefixed `task02_`)
+
+| Phase | Markers |
+|---|---|
+| Session boundaries | `task02_start`, `task02_end` |
+| Instructions | `task02_instructions_start`, `task02_instructions_end` |
+| Stimulus | `task02_color_red`, `task02_color_green`, `task02_color_blue` (one per trial at the color flip), `task02_iti` (one per trial at the gray flip) |
+| Breaks | `task02_break_start`, `task02_break_end` |
 
 **Primary endpoint**: SVM decoding of R/G/B from Sentiometer features vs. 10,000-iteration permutation null. **Hypothesis is NULL** — we predict the Sentiometer cannot decode color. EEG decoding is the positive control.
 

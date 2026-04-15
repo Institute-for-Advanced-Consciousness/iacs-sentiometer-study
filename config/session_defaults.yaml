@@ -36,11 +36,28 @@ task03_backward_masking:
   catch_trial_proportion: 0.17
   mask_duration_ms: 200
   fixation_duration_ms: 500
-  response_window_ms: 1000
-  staircase_start_soa_ms: 100
-  staircase_step_down_ms: 8
-  staircase_step_up_ms: 8
-  target_threshold: 0.50
+  response_window_ms: 1500
+  # Practice (familiarization only -- no performance gate)
+  practice_trials: 8
+  practice_face_trials: 6
+  practice_catch_trials: 2
+  practice_soa_ms: 200
+  # Response keys
+  response_key_seen: "f"
+  response_key_unseen: "j"
+  response_key_unsure: "space"
+  # QUEST staircase (targets 50% detection threshold)
+  quest_beta: 3.5
+  quest_delta: 0.01
+  quest_gamma: 0.02
+  quest_grain: 1
+  soa_min_ms: 17
+  soa_max_ms: 500
+  soa_start_ms: 100
+  # Stimulus handling
+  face_size_px: 256
+  n_mondrian_masks: 100
+  min_face_identities: 10
 
 task04_mind_state:
   game_duration_s: 300

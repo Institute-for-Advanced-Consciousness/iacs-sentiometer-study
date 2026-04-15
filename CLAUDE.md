@@ -146,7 +146,7 @@ Parameters that **define the paradigm** are hardcoded in the task script, not in
 |---|---|---|
 | 01 Oddball | total_trials, deviant_probability, ISI range, tone duration, rise/fall, response window, volume, max consecutive standards, practice_trials, practice_deviants, practice_hit_threshold, practice_fa_ceiling | Tone frequencies (1000 / 2000 Hz), target dB SPL, audio file names, active button-press task instruction, practice-then-main lifecycle |
 | 02 RGB | trials_per_color, trial duration range, colors list, iti_duration_ms, break_interval_trials, break_duration_s | Fixation cross geometry, no-consecutive-same-color constraint, pure-RGB values, gray-ITI design, passive (no-response) task structure |
-| 03 Masking | total_trials, catch trial proportion, mask/fixation/response durations, staircase parameters, target threshold | 3-point response scheme, trial structure order, KDEF stimulus set, single-frame target duration |
+| 03 Masking | total_trials, catch_trial_proportion, mask/fixation/response durations, QUEST parameters (beta/delta/gamma/grain, start/min/max SOA), practice counts, practice_soa_ms, response key bindings, face_size_px, min_face_identities | 3-alternative response scheme, trial structure order, KDEF-cropped neutral stimulus set, single-frame target duration, familiarization-only practice, QUEST as the staircase algorithm |
 | 04 Mind-State | game/break/meditation durations, game start/max speed | Two-block order (game → break → meditation), game mechanics, meditation instruction text, eyes-closed condition |
 | 05 SSVEP | freq range, freq step, step duration | Checkerboard stimulus, continuous transitions (no gap), fixation cross overlay, passive-fixation task |
 
@@ -225,21 +225,48 @@ Practice-phase responses are tracked in the behavioral CSV but **not** emitted a
 
 | Parameter | Value |
 |-----------|-------|
-| Target | Neutral KDEF faces, presented centrally |
-| Target duration | ~17 ms (1 frame at 60 Hz) |
-| Mask | Mondrian pattern, 200 ms |
-| SOA | Adaptive staircase → individual ~50% threshold |
-| Catch trials | ~17% mask-only (no face) |
-| Response | 3-point: Seen / Not Seen / Unsure |
-| Trial structure | Fixation (500 ms) → Face (~17 ms) → SOA → Mask (200 ms) → Response (~1 s) |
-| Total trials | ~250–300 (including ~45–50 catch) |
+| Target | 27 KDEF-cropped neutral faces (19 female, 8 male), all used, 256×256 px |
+| Target duration | 1 frame (~17 ms at 60 Hz) |
+| Mask | One of 100 pre-generated Mondrian patterns (256×256), 200 ms |
+| SOA | QUEST adaptive staircase → individual ~50% detection threshold |
+| Catch trials | ~17% mask-only (no face) — do NOT update the staircase |
+| Response | 3-alternative: F = Seen, J = Not Seen, Spacebar = Unsure |
+| Response window | 1500 ms |
+| Trial structure | Fixation (500 ms) → Face (1 frame) → Gray + fixation (SOA − 17 ms) → Mask (200 ms) → Response (up to 1500 ms) |
+| Practice | Familiarization only (no performance gate): 6 face trials @ 200 ms SOA + 2 catch |
+| Total main trials | 275 (~228 face + ~47 catch) |
 | Duration | ~10 min |
 
-**LSL markers**: `task03_start`, `task03_end`, `task03_face_onset`, `task03_mask_onset`, `task03_catch_trial`, `task03_response_seen`, `task03_response_unseen`, `task03_response_unsure`, `task03_soa_value_XX` (where XX = ms)
+### Staircase
+
+- PsychoPy `data.QuestHandler` targeting 50% detection (pThreshold=0.5).
+- Parameters: `beta=3.5`, `delta=0.01`, `gamma=0.02`, `grain=1` ms.
+- Starting SOA = 100 ms; clamped to `[17, 500]` ms.
+- Updates only on **main-task face-present trials**. Catch trials and practice trials do not update QUEST.
+- "Seen" response = correct; "Not Seen" or "Unsure" = incorrect. (Unsure is grouped with Not Seen for QUEST purposes but logged as its own response category.)
+
+### Practice
+
+A fixed 8-trial familiarization block (6 face-present at a clearly-visible 200 ms SOA + 2 catch, shuffled) runs before the main task. There is **no accuracy gate** — the practice is purely to demonstrate the trial structure and the response mapping. After practice the participant sees "Practice complete. In the real task, the faces will sometimes be very brief and hard to see. Just do your best."
+
+### LSL markers (all prefixed `task03_`, 17+ distinct types)
+
+| Phase | Markers |
+|---|---|
+| Session boundaries | `task03_start`, `task03_end` |
+| Instructions | `task03_instructions_start`, `task03_instructions_end` |
+| Practice | `task03_practice_start`, `task03_practice_end`, `task03_practice_face_onset`, `task03_practice_catch`, `task03_practice_mask_onset` |
+| Main stimulus (per trial) | `task03_fixation_onset`, `task03_face_onset` (face-present), `task03_catch_trial` (mask-only), `task03_mask_onset` |
+| Main response | `task03_response_seen`, `task03_response_unseen`, `task03_response_unsure`, `task03_response_timeout` |
+| Staircase tracking | `task03_soa_value_XXX` (3-digit zero-padded ms, e.g. `task03_soa_value_067`) — one per main face-present trial after the response is recorded |
+
+Practice trials do not emit response or SOA markers. Correct-rejection equivalents on catch trials (participant correctly says "Not Seen") still emit a normal `task03_response_unseen` marker — the catch / non-catch distinction is captured by the `task03_catch_trial` vs `task03_face_onset` marker that precedes it.
 
 **Primary endpoint**: Sentiometer difference between "seen" and "unseen" at threshold SOAs. EEG VAN and P3b as positive controls.
 
-**Stimulus note**: KDEF images are licensed for research use. They must NOT be committed to the repo. Place them in `src/tasks/03_backward_masking/stimuli/` locally. The `.gitignore` excludes this directory.
+### Stimuli (committed to this repo)
+
+The `stimuli/faces/` and `stimuli/masks/` directories are **committed to the repo** (see `src/tasks/03_backward_masking/stimuli/README.md`). The repository is private until publication; redistribution of the KDEF images is subject to the upstream license. Mondrian masks are procedurally generated via `scripts/generate_mondrians.py` (deterministic, 100 unique 256×256 PNGs) and committed so the task is reproducible without regenerating.
 
 ### Task 04: Mind-State Switching
 
@@ -380,10 +407,11 @@ The GUI opens on launch and collects/validates everything needed before the sess
 
 - `config/local.yaml` (machine-specific serial ports, paths)
 - `data/` (participant XDF files — these go to secure storage)
-- `src/tasks/03_backward_masking/stimuli/` (licensed KDEF images)
 - `.venv/`
 - `__pycache__/`
 - Any file containing participant data or PII
+
+Note: The KDEF neutral faces and procedurally-generated Mondrian masks for Task 03 **are** committed to this (private) repo so the task is fully reproducible without a separate download step. See `src/tasks/03_backward_masking/stimuli/README.md` for attribution and licensing notes.
 
 ---
 

@@ -45,5 +45,8 @@ data/
 # Machine-specific config
 config/local.yaml
 
-# Licensed stimuli (KDEF faces — see README)
-src/tasks/03_backward_masking/stimuli/
+# KDEF neutral faces + procedurally generated Mondrian masks are committed
+# to this (private) repo so the task is fully reproducible without an extra
+# download step. See src/tasks/03_backward_masking/stimuli/README.md for
+# attribution and licensing notes. Do NOT re-add an exclusion here without
+# discussing it first — removing the stimuli breaks Task 03.

@@ -162,23 +162,66 @@ This document defines every action item for building the Sentiometer study task 
 
 ### 1.3 — Task 03: Backward Masking (Face Detection)
 
-**What**: Adaptive staircase masking with KDEF faces. ~250–300 trials, ~10 min.
+**What**: QUEST-driven adaptive staircase backward masking with all 27 KDEF-cropped neutral faces and 100 pre-generated Mondrian masks. 275 main trials preceded by an 8-trial familiarization block (no accuracy gate). ~10 min.
 
-**Acceptance Criteria**:
-- [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
-- [ ] Task reads its config section from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task03_backward_masking")`; the shipped section contains `total_trials`, `catch_trial_proportion`, `mask_duration_ms`, `fixation_duration_ms`, `response_window_ms`, and all staircase parameters (`staircase_start_soa_ms`, `staircase_step_down_ms`, `staircase_step_up_ms`, `target_threshold`). The 1-frame target duration is hardcoded because it's dictated by the display refresh rate.
-- [ ] Adaptive staircase: 2-down/1-up or QUEST procedure converging on ~50% detection threshold
-- [ ] SOA starts at a clearly visible level (e.g., 100 ms) and adapts per participant
-- [ ] Stimuli: neutral KDEF faces loaded from `stimuli/` directory; clear error if directory is empty/missing
-- [ ] `scripts/generate_mondrians.py` creates Mondrian mask images (random colored rectangles, specified size)
-- [ ] Trial structure: Fixation (500 ms) → Face (1 frame) → Blank/gray (SOA – 17 ms) → Mask (200 ms) → Response screen
-- [ ] Catch trials: ~17% of trials show mask only (no face), randomly interleaved
-- [ ] Response: 3-button (Seen / Not Seen / Unsure) — keys clearly displayed on response screen
-- [ ] LSL markers (all prefixed `task03_`): `task03_start`, `task03_end`, `task03_face_onset`, `task03_mask_onset`, `task03_catch_trial`, `task03_response_seen`, `task03_response_unseen`, `task03_response_unsure`, and `task03_soa_value_XX`
-- [ ] Staircase state saved to log (all reversals, threshold estimate at end)
-- [ ] `--demo` mode: 20 trials (fixed SOAs, no staircase), completes in <1 min. Creates its own temporary outlet if none is passed.
-- [ ] Behavioral log: CSV with `trial, trial_type (face/catch), soa_ms, response, confidence, rt_ms, staircase_level`
-- [ ] README in task directory documents KDEF license requirements and how to populate `stimuli/`
+**Acceptance Criteria — wiring**:
+- [ ] `run(outlet, config, ...)` accepts the shared session marker outlet; does NOT create or destroy any session-level LSL streams. Demo mode creates a temporary outlet if none is passed.
+- [ ] Task reads its config from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task03_backward_masking")`.
+- [ ] Side-effecting I/O bundled into a `TaskIO` dataclass; PsychoPy imported lazily in `_build_psychopy_io`.
+- [ ] Staircase is behind a `Staircase` protocol so tests inject `FixedSoaStaircase` and demo mode uses a fixed `[150, 100, 80, 60, 40]` ms staircase instead of QUEST.
+
+**Acceptance Criteria — stimuli (committed to repo)**:
+- [ ] `src/tasks/03_backward_masking/stimuli/faces/` contains all 27 KDEF-cropped neutral faces (19 female, 8 male). Filenames contain the KDEF expression code `NE`.
+- [ ] `src/tasks/03_backward_masking/stimuli/masks/` contains 100 procedurally generated Mondrian masks (256×256 PNG).
+- [ ] `scripts/generate_mondrians.py` produces the masks deterministically (seeded per-mask index) so regeneration is byte-identical.
+- [ ] `src/tasks/03_backward_masking/stimuli/README.md` documents the KDEF-cropped source, citation (Dawel et al. 2017; Lundqvist, Flykt & Öhman 1998), licensing status, and that the repo is private until publication.
+- [ ] `.gitignore` does NOT exclude `src/tasks/03_backward_masking/stimuli/`.
+- [ ] At startup, `scan_face_directory` filters to `*NE*.png`, logs the count, and raises `RuntimeError` with a clear message if fewer than `min_face_identities` (default 10) are found.
+- [ ] Each face is resized to `face_size_px × face_size_px` (default 256) at load time for display consistency.
+
+**Acceptance Criteria — QUEST staircase**:
+- [ ] Uses `psychopy.data.QuestHandler` with `pThreshold=0.50`, configurable `beta`, `delta`, `gamma`, `grain`.
+- [ ] Starting SOA from `soa_start_ms` (default 100); SOA clamped to `[soa_min_ms, soa_max_ms]` (defaults 17, 500).
+- [ ] Updates only on **main-task face-present trials**. Practice trials and catch trials never update the staircase.
+- [ ] "Seen" response = correct (pass 1 to QUEST); "Not Seen" / "Unsure" / timeout = incorrect (pass 0).
+- [ ] Current threshold estimate is logged per main face-present trial in the behavioral CSV.
+
+**Acceptance Criteria — trial structure & timing**:
+- [ ] Fixation (500 ms) → Face for 1 frame (~17 ms, hardcoded from display refresh) → Gray + fixation gap of `max(0, SOA − 17)` ms → Mondrian mask (200 ms) → Response prompt (up to `response_window_ms`, default 1500).
+- [ ] On catch trials the 1-frame face slot shows gray + fixation with no face image drawn; timing is identical.
+- [ ] Catch proportion: ~17% of total trials (`round(total_trials * catch_trial_proportion)`), shuffled into the trial sequence.
+- [ ] Face scheduling via `build_face_schedule` cycles through shuffled copies of the face ID list so all 27 identities are used roughly equally (228 face trials / 27 faces ≈ 8.4 each).
+
+**Acceptance Criteria — practice (familiarization only)**:
+- [ ] 8-trial practice block: `practice_face_trials` face-present trials at `practice_soa_ms` (default 200 ms, clearly visible) + `practice_catch_trials` catch trials, shuffled.
+- [ ] No accuracy gate; practice always ends after one block.
+- [ ] Practice trials emit `task03_practice_*` markers instead of the main-task stimulus / response markers.
+- [ ] After practice, the "Practice complete. In the real task, the faces will sometimes be very brief..." screen is shown; participant presses spacebar to start main.
+
+**Acceptance Criteria — response keys**:
+- [ ] Three-alternative response: `F` = Seen, `J` = Not Seen, `Spacebar` = Unsure. All three keys are configurable via `response_key_seen` / `response_key_unseen` / `response_key_unsure`.
+- [ ] Response prompt screen displays the exact key legend: `F = Yes    |    Spacebar = Unsure    |    J = No`.
+- [ ] If no response within `response_window_ms`, the trial is logged as `timeout` and emits `task03_response_timeout`.
+
+**Acceptance Criteria — LSL markers** (all prefixed `task03_`):
+- [ ] Session boundaries: `task03_start`, `task03_end`.
+- [ ] Instructions: `task03_instructions_start`, `task03_instructions_end`.
+- [ ] Practice: `task03_practice_start`, `task03_practice_end`, `task03_practice_face_onset`, `task03_practice_catch`, `task03_practice_mask_onset`.
+- [ ] Main stimulus per trial: `task03_fixation_onset`, `task03_face_onset` (face-present) or `task03_catch_trial` (mask-only), `task03_mask_onset`.
+- [ ] Main response: `task03_response_seen`, `task03_response_unseen`, `task03_response_unsure`, `task03_response_timeout`.
+- [ ] Staircase tracking: `task03_soa_value_XXX` (3-digit zero-padded ms, e.g. `task03_soa_value_067`) — one per main face-present trial after the response is classified.
+
+**Acceptance Criteria — demo & logging**:
+- [ ] `demo=True`: 5 practice + 20 main trials (17 face + 3 catch), fixed SOAs cycling through `[150, 100, 80, 60, 40]` ms (no QUEST), placeholder face stimuli so the task runs without KDEF files on disk. Completes in under 1 minute.
+- [ ] Behavioral log saved to `data/{participant_id}/task03_backward_masking_*.csv` with columns: `trial_number, phase, trial_type, face_id, mask_id, soa_ms, response, rt_ms, quest_threshold_estimate`.
+- [ ] Catch rows log `face_id = "none"`.
+- [ ] Practice rows log an empty `quest_threshold_estimate`; main face-present rows log the QUEST (or FixedSoa) mean.
+
+**Acceptance Criteria — tests**:
+- [ ] `tests/test_task03_backward_masking.py` loads the task via `importlib.import_module("tasks.03_backward_masking.task")`.
+- [ ] Pure helpers have unit tests: `scan_face_directory` (NE filter, min-identities error, missing-dir error), `build_trial_types` (catch proportion at full and demo sizes), `build_face_schedule` (cycles through all faces), `FixedSoaStaircase` (cycling, threshold-as-mean).
+- [ ] An end-to-end simulated run creates temp face and mask directories, uses a `MockTaskIO` and `FixedSoaStaircase`, exercises every response category (seen/unseen/unsure/timeout), captures markers via a real LSL inlet, and asserts every marker type from the spec appears with correct counts (17 SOA markers for 17 main face trials, 3 catch markers, etc.), that catch trials never update the staircase, and that the CSV schema + catch `face_id="none"` invariant hold.
+- [ ] A response-key-mapping test verifies the configured `response_key_*` values propagate into the `key_map` passed to `wait_for_response` (not hardcoded F/J/Space).
 
 ### 1.4 — Task 04: Mind-State Switching
 

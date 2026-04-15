@@ -78,21 +78,46 @@ This document defines every action item for building the Sentiometer study task 
 
 ### 1.1 — Task 01: Auditory Oddball (P300)
 
-**What**: Standard two-tone oddball with active button press. ~250 trials, ~5 min. Stimulus and timing parameters match the **ERP CORE** standardized auditory oddball protocol (Kappenman et al., 2021, *NeuroImage*).
+**What**: Standard two-tone oddball with active button press, preceded by a self-paced practice gate. ~250 main trials, ~5–8 min depending on practice attempts. Stimulus and timing parameters match the **ERP CORE** standardized auditory oddball protocol (Kappenman et al., 2021, *NeuroImage*).
 
-**Acceptance Criteria**:
-- [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
-- [ ] Task reads its config section from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task01_oddball")` — no per-task config file
+**Acceptance Criteria — wiring**:
+- [ ] `run(outlet, config, ...)` accepts the shared session marker outlet; does NOT create or destroy any session-level LSL streams. If `outlet` is `None` (standalone testing) the task creates a temporary demo outlet via `create_demo_outlet()` and tears it down at the end.
+- [ ] Task reads its config from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task01_oddball")` — no per-task config file.
+- [ ] Side-effecting I/O (display, audio, keyboard, sleep) is bundled into a `TaskIO` dataclass so the task can be driven headlessly by tests; PsychoPy is imported lazily inside the production `_build_psychopy_io` builder.
+
+**Acceptance Criteria — stimuli & timing**:
 - [ ] Pre-generated .wav files for 1000 Hz and 2000 Hz tones (100 ms total, 10 ms raised-cosine rise/fall, 44.1 kHz, 16-bit) in `assets/sounds/`
 - [ ] `scripts/generate_tones.py` produces these files reproducibly
-- [ ] Trial sequence: pseudorandom with constraint that no more than 3 consecutive standards occur between deviants
+- [ ] Trial sequence: pseudorandom via stratified placement honoring `max_consecutive_standards` (warns and relaxes to the minimum feasible value if the requested constraint is mathematically impossible for the configured ratio)
 - [ ] ISI jittered uniformly 1100–1500 ms
-- [ ] LSL markers emitted (all prefixed `task01_`): `task01_start`, `task01_end`, `task01_tone_standard`, `task01_tone_deviant`, `task01_response_hit`, `task01_response_false_alarm`, `task01_response_miss`
-- [ ] Marker timestamp is at tone onset (not after audio buffer fill)
-- [ ] Button press within 200–1000 ms post-deviant = hit; button press after standard = false alarm
-- [ ] `--demo` mode: 20 trials (16 standard + 4 deviant), completes in <30 seconds. Creates its own temporary outlet if none is passed.
-- [ ] Behavioral log saved: CSV with columns `trial, tone_type, onset_time, response_time, response_type, rt_ms`
-- [ ] Task exits cleanly and returns control to launcher
+- [ ] Marker timestamp stamped with `local_clock()` immediately after `Sound.play()` (as close to onset as PsychoPy + audio backend allow)
+
+**Acceptance Criteria — practice gate**:
+- [ ] Before the main task, a 10-trial practice block runs (8 standard + 2 deviant by default; configurable via `practice_trials` / `practice_deviants`)
+- [ ] After each practice block, hit rate and false-alarm rate are computed and shown to the participant ("You detected X of Y target tones (Z%). You need at least 75% to continue.")
+- [ ] Pass criteria: `hit_rate >= practice_hit_threshold` (default 0.75) **and** `fa_rate <= practice_fa_ceiling` (default 0.50). On pass, show "Great job!" feedback and start main task on next spacebar.
+- [ ] Fail: show retry message, repeat the practice block. **No cap on practice attempts.** Each attempt is logged.
+- [ ] In `demo=True` mode, the practice gate always passes after attempt 1 regardless of accuracy.
+- [ ] Escape key triggers graceful exit via the common `check_escape` handler (raises `EscapePressedError`)
+
+**Acceptance Criteria — LSL markers** (all prefixed `task01_`):
+- [ ] Session boundaries: `task01_start`, `task01_end`
+- [ ] Instructions: `task01_instructions_start`, `task01_instructions_end`
+- [ ] Practice: `task01_practice_start`, `task01_practice_end`, `task01_practice_attempt_N` (one per attempt), `task01_practice_passed`, `task01_practice_tone_standard`, `task01_practice_tone_deviant`
+- [ ] Main stimulus: `task01_tone_standard`, `task01_tone_deviant`
+- [ ] Main response: `task01_response_hit` (button press within response window after deviant), `task01_response_false_alarm` (button press after standard), `task01_response_miss` (no press after deviant)
+- [ ] Practice-phase responses are tracked in the CSV but **not** emitted as response markers (clean separation between practice and main-task response events)
+- [ ] Correct rejections (no press on standard) emit no marker — they are the silent default
+
+**Acceptance Criteria — demo & logging**:
+- [ ] `demo=True`: 1 practice block (always passes) + 20 main trials. Creates its own temporary outlet if no outlet is passed.
+- [ ] Behavioral log saved to `data/{participant_id}/task01_oddball_*.csv` with columns: `trial_number, phase, practice_attempt, tone_type, tone_onset_time, response_time, response_type, rt_ms`
+- [ ] Task exits cleanly via `try/finally` (window closed, outlet cleaned up if owned) and returns the log path
+
+**Acceptance Criteria — tests**:
+- [ ] `tests/test_task01_oddball.py` loads the task via `importlib.import_module("tasks.01_oddball.task")` (the directory name starts with a digit and isn't a valid identifier for `import` statements)
+- [ ] A simulated end-to-end run with a mock `TaskIO` exercises practice failure → retry → pass → main, captures markers via a real LSL inlet, and asserts every marker type from the spec appears
+- [ ] Pure helpers (`build_trial_sequence`, `compute_practice_metrics`) have unit tests including the infeasible-constraint case
 
 ### 1.2 — Task 02: RGB Illuminance Test
 

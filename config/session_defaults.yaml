@@ -16,6 +16,11 @@ task01_oddball:
   response_window_ms: 1000
   volume: 1.0
   max_consecutive_standards: 3
+  # Practice gate (run before main task; repeats until participant passes)
+  practice_trials: 10
+  practice_deviants: 2
+  practice_hit_threshold: 0.75
+  practice_fa_ceiling: 0.50
 
 task02_rgb_illuminance:
   trials_per_color: 100

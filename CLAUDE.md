@@ -144,7 +144,7 @@ Parameters that **define the paradigm** are hardcoded in the task script, not in
 
 | Task | Configurable (`session_defaults.yaml`) | Fixed (hardcoded in task script) |
 |---|---|---|
-| 01 Oddball | total_trials, deviant_probability, ISI range, tone duration, rise/fall, response window, volume, max consecutive standards | Tone frequencies (1000 / 2000 Hz), target dB SPL, audio file names, active button-press task instruction |
+| 01 Oddball | total_trials, deviant_probability, ISI range, tone duration, rise/fall, response window, volume, max consecutive standards, practice_trials, practice_deviants, practice_hit_threshold, practice_fa_ceiling | Tone frequencies (1000 / 2000 Hz), target dB SPL, audio file names, active button-press task instruction, practice-then-main lifecycle |
 | 02 RGB | trials_per_color, trial duration range, colors list | Fixation cross geometry, no-consecutive-same-color constraint, pure-RGB values |
 | 03 Masking | total_trials, catch trial proportion, mask/fixation/response durations, staircase parameters, target threshold | 3-point response scheme, trial structure order, KDEF stimulus set, single-frame target duration |
 | 04 Mind-State | game/break/meditation durations, game start/max speed | Two-block order (game → break → meditation), game mechanics, meditation instruction text, eyes-closed condition |
@@ -169,7 +169,28 @@ Parameters that **define the paradigm** are hardcoded in the task script, not in
 
 **Protocol note**: Tone duration, rise/fall envelope, and ISI range match the **ERP CORE** standardized auditory oddball protocol (Kappenman et al., 2021, *NeuroImage*). This keeps our P300 data comparable with the published ERP CORE reference dataset.
 
-**LSL markers to emit**: `task01_start`, `task01_end`, `task01_tone_standard`, `task01_tone_deviant`, `task01_response_hit`, `task01_response_false_alarm`, `task01_response_miss`
+### Practice gate
+
+Before the main task begins, the participant runs a 10-trial practice block (8 standard + 2 deviant, identical stimulus parameters to the main task). After each practice block we compute hit rate (correct deviant detections) and false-alarm rate (button presses on standards) and show feedback on screen.
+
+| Outcome | Pass criteria | Behavior |
+|---|---|---|
+| Pass | hit rate ≥ `practice_hit_threshold` (default 0.75) **and** false-alarm rate ≤ `practice_fa_ceiling` (default 0.50) | Show "Great job!" with the score, then start the main task on next spacebar |
+| Fail | Either criterion not met | Show retry message reminding them to press only on the high tone, then repeat the practice block |
+
+**There is no cap on practice attempts** — the participant keeps going until they pass. Each attempt is logged. If the experimenter judges that the participant cannot do the task, the standard Escape handler aborts. **Demo mode** bypasses the gate: practice always passes after attempt 1.
+
+### LSL markers (all prefixed `task01_`)
+
+| Phase | Markers |
+|---|---|
+| Session boundaries | `task01_start`, `task01_end` |
+| Instructions | `task01_instructions_start`, `task01_instructions_end` |
+| Practice | `task01_practice_start`, `task01_practice_end`, `task01_practice_attempt_N` (N = 1, 2, 3, …), `task01_practice_passed`, `task01_practice_tone_standard`, `task01_practice_tone_deviant` |
+| Main stimulus | `task01_tone_standard`, `task01_tone_deviant` |
+| Main response | `task01_response_hit`, `task01_response_false_alarm`, `task01_response_miss` |
+
+Practice-phase responses are tracked in the behavioral CSV but **not** emitted as response markers, so the marker stream cleanly separates practice events from main-task events. Correct rejections (no button press on standard) emit no marker — they are the silent default.
 
 **Primary endpoint**: Sentiometer signal change 250–350 ms post-deviant vs. post-standard, correlated with EEG P300 at Pz/Cz.
 

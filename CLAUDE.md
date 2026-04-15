@@ -279,18 +279,45 @@ Total on-site: ~4.25 hours.
 
 ## Session Launcher
 
-`src/tasks/launcher.py` is the experimenter-facing interface. It:
+**The launcher is the single entry point for every session.** Nothing else is run by hand. `uv run python -m tasks.launcher` (no arguments required) opens a GUI that the experimenter uses to configure and start the session. Only after the experimenter clicks **Start Session** in the GUI does any task code run.
 
-1. Creates the `P013_Task_Markers` LSL outlet (one outlet for the entire session)
-2. Sends `session_start` marker
-3. Displays a checklist of pre-session requirements (EEG impedances OK, Sentiometer streaming, LabRecorder recording)
-4. Runs each task in protocol order (01 → 05), passing the shared marker outlet to each task's `run()` function
-5. Pauses between tasks for experimenter confirmation
-6. Logs session metadata (participant ID, date, task start/end times, any notes)
-7. Sends `session_end` marker and closes the outlet after all tasks complete
-8. Handles graceful abort (sends `session_end`, closes outlet, saves partial data, logs reason)
+### Launcher GUI (pre-session setup screen)
 
-CLI: `uv run python -m tasks.launcher --participant-id P001`
+The GUI opens on launch and collects/validates everything needed before the session begins:
+
+**Participant & session metadata**
+- Participant ID (text field, required, validated against `P\d{3}` format)
+- Session date (auto-filled, editable)
+- Experimenter initials (text field)
+- Notes (free-text box for anything RAs want to record)
+
+**Stream setup & health checks** (live-updating status panel)
+- **Task marker stream**: button to create the `P013_Task_Markers` outlet with the entered participant ID baked into the source ID. Once created, show stream name, source ID, and a green "LIVE" indicator so RAs on the LabRecorder machine can confirm they see it on the network.
+- **Sentiometer check**: button to run a connection/health check against the Sentiometer (via its LSL stream on the network, or via direct serial test if co-located). Displays: stream found (Y/N), sample rate, last sample timestamp, channel count. Must be green before Start Session is enabled.
+- **EEG stream check**: scans the network for the BrainVision LSL stream. Displays stream name and status.
+- **CGX AIM-2 check**: scans the network for the CGX LSL stream. Displays stream name and status.
+- **LabRecorder confirmation**: manual checkbox — "LabRecorder is recording all four streams (task markers, Sentiometer, EEG, CGX)". Shows the exact stream names RAs should look for so they can locate them quickly on the LabRecorder machine.
+
+**Session controls**
+- **Start Session** button: disabled until participant ID is valid and all required stream checks are green (LabRecorder checkbox ticked). On click: sends `session_start` marker, closes the GUI, and launches Task 01.
+- **Abort** button: available at any time once the session is running. Sends `session_end` marker, closes the outlet, saves partial data, logs the abort reason.
+
+### Launcher responsibilities (post-GUI, during session)
+
+1. Holds the `P013_Task_Markers` outlet for the full session (created in the GUI, never recreated)
+2. Runs each task in protocol order (01 → 05), passing the shared marker outlet to each task's `run()` function
+3. Between tasks, shows a brief "Task X complete — press Enter / click Continue to proceed to Task Y" screen so the experimenter can check in with the participant
+4. Logs session metadata to `data/{participant_id}/session_log.json` (participant ID, experimenter, date, task start/end times, notes, any abort reasons)
+5. Sends `session_end` marker and closes the outlet after all tasks complete
+6. Handles graceful abort at any point: sends `session_end`, closes outlet, saves partial data, logs reason
+
+### CLI flags (all optional — GUI is the primary interface)
+- `--participant-id P001` — pre-fills the participant ID field in the GUI
+- `--skip-to N` — skip to task N (crash recovery)
+- `--demo` — runs all tasks in demo mode (short trial counts, for testing)
+- `--no-gui` — headless fallback for CI/testing only; never used in a real session
+
+**Framework**: Tkinter (stdlib, no extra dependency). If we later need richer widgets, revisit with PyQt/PySide. Keep the GUI code in `src/tasks/launcher_gui.py` separate from the session-runtime code in `src/tasks/launcher.py` so the session logic stays testable without a display.
 
 ---
 

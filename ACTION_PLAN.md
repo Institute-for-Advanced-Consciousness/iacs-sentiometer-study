@@ -192,27 +192,39 @@ This must be discussed with Nicco before implementation. For now, implement with
 
 ## Phase 2: Session Launcher
 
-### 2.1 — Build the session launcher (`src/tasks/launcher.py`)
+**Note on ordering**: The launcher GUI scaffold (2.1) is built *before* the individual tasks in Phase 1 so that every task can be exercised end-to-end through the real launcher flow from day one. The GUI is the only supported entry point for running a session — there is no hand-run task script in production.
 
-**What**: Experimenter-facing CLI/GUI that sequences all tasks and manages the session.
+### 2.1 — Build the session launcher GUI + runtime
 
-**Acceptance Criteria**:
-- [ ] CLI entry: `uv run python -m tasks.launcher --participant-id P001`
-- [ ] Launcher creates `P013_Task_Markers` LSL outlet (via `create_session_outlet(participant_id)`) before any task runs
-- [ ] Launcher sends `session_start` marker immediately after outlet creation
-- [ ] Pre-flight checklist displayed in terminal (rich-formatted):
-  - Sentiometer streaming? (checks for LSL stream on the network)
-  - EEG streaming? (checks for LSL stream on the network)
-  - LabRecorder recording? (manual confirmation)
-  - Participant ID entered?
-  - Participant consented? (manual confirmation)
-- [ ] Runs tasks 01–05 in order, passing the shared outlet to each task's `run()` function
-- [ ] Between each task: pauses, shows "Task X complete. Press Enter to continue to Task Y."
-- [ ] Logs session metadata to `data/{participant_id}/session_log.json`: participant ID, date, task start/end times, any abort reasons
-- [ ] Launcher sends `session_end` marker after all tasks complete, then closes the outlet
-- [ ] Graceful abort: Ctrl+C at any point sends `session_end` marker, closes the outlet, saves partial data, and logs abort reason
-- [ ] `--skip-to N` flag: allows starting from task N (for recovery after crash)
-- [ ] `--demo` flag: passes `--demo` to all tasks
+**What**: Tkinter-based GUI launcher (`src/tasks/launcher_gui.py`) wired to a session runtime (`src/tasks/launcher.py`). The GUI is the single entry point; no session ever starts without it. See the **Session Launcher** section of `CLAUDE.md` for the full spec.
+
+**Acceptance Criteria — entry & GUI layout**:
+- [ ] Entry point: `uv run python -m tasks.launcher` opens the GUI with no CLI args required
+- [ ] GUI is built with Tkinter (stdlib) — no new dependency
+- [ ] GUI code lives in `src/tasks/launcher_gui.py`; session-runtime code lives in `src/tasks/launcher.py`. Runtime is importable and testable without a display.
+- [ ] GUI fields: Participant ID (required, validated as `P\d{3}`), session date (auto-filled, editable), experimenter initials, notes (free text)
+- [ ] Optional CLI flags pre-fill the GUI: `--participant-id P001`, `--demo`, `--skip-to N`. `--no-gui` runs headless (CI only).
+
+**Acceptance Criteria — stream setup & checks panel**:
+- [ ] **Create marker stream** button: calls `create_session_outlet(participant_id)` to create the `P013_Task_Markers` outlet with source ID `P013_{participant_id}`. After creation, the GUI displays stream name + source ID + a green "LIVE" indicator so RAs on the LabRecorder machine can locate it.
+- [ ] **Sentiometer check** button: scans the network for the Sentiometer LSL stream and reports stream found (Y/N), sample rate, last sample timestamp, channel count. Turns green on success.
+- [ ] **EEG check** button: scans for the BrainVision LSL stream, reports name + status.
+- [ ] **CGX AIM-2 check** button: scans for the CGX LSL stream, reports name + status.
+- [ ] **LabRecorder confirmation** checkbox: manual tick to confirm LabRecorder is recording all four streams. GUI prints the exact stream names next to the checkbox so RAs can cross-reference them.
+- [ ] All stream checks re-runnable without restarting the GUI.
+
+**Acceptance Criteria — session controls**:
+- [ ] **Start Session** button disabled until: participant ID valid, marker stream created, Sentiometer check green, EEG check green, CGX check green, LabRecorder checkbox ticked
+- [ ] On Start: GUI sends `session_start` marker, closes the setup window, and hands control to the session runtime
+- [ ] Session runtime runs tasks 01–05 in order, passing the shared outlet to each task's `run()` function
+- [ ] Between tasks: pauses with "Task X complete — Continue to Task Y?" prompt
+- [ ] **Abort** available at any point: sends `session_end` marker, closes outlet, saves partial data, logs reason
+
+**Acceptance Criteria — logging & recovery**:
+- [ ] Session metadata written to `data/{participant_id}/session_log.json`: participant ID, experimenter, date, notes, task start/end times, abort reason (if any), list of streams detected at start
+- [ ] `--skip-to N` starts from task N (crash recovery)
+- [ ] `--demo` propagates to all tasks
+- [ ] Graceful abort (Ctrl+C or Abort button) always sends `session_end` before exit
 
 ---
 
@@ -273,12 +285,14 @@ Tell Claude Code to execute these in order, one at a time:
 3. Phase 0.2: Place CLAUDE.md
 4. Phase 0.3: Update pyproject.toml
 5. Phase 0.4: Build common utilities + tests
-6. Phase 1.1: Task 01 — Auditory Oddball
-7. Phase 1.2: Task 02 — RGB Illuminance
-8. Phase 1.3: Task 03 — Backward Masking
-9. Phase 1.4: Task 04 — Mind-State Switching
-10. Phase 1.5: Task 05 — SSVEP Ramp-Down
-11. Phase 2.1: Session Launcher
+6. Phase 2.1: Session Launcher GUI + runtime scaffold
+   (moved before Phase 1 so every task is built against the
+    real launcher flow from day one)
+7. Phase 1.1: Task 01 — Auditory Oddball
+8. Phase 1.2: Task 02 — RGB Illuminance
+9. Phase 1.3: Task 03 — Backward Masking
+10. Phase 1.4: Task 04 — Mind-State Switching
+11. Phase 1.5: Task 05 — SSVEP Ramp-Down
 12. Phase 3.1–3.2: Tests
 13. Phase 4.1–4.2: Docs and scripts
 ```

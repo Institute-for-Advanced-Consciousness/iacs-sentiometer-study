@@ -18,7 +18,7 @@ Directed Emotional Faces, cropped to an oval mask over a uniform background).
 - **Filter criterion at runtime**: the task scans this directory for PNG
   files containing the substring `NE` in the filename (KDEF expression code
   for Neutral). All matched files are used.
-- **Expected count**: 27 neutral identities (19 female, 8 male) per the
+- **Expected count**: 28 neutral identities (20 female, 8 male) per the
   KDEF-cropped neutral subset used in this study.
 - **Minimum**: the task raises at startup if fewer than 10 neutral faces are
   found, so the stimulus set stays large enough to avoid per-identity

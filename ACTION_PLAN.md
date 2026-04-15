@@ -162,7 +162,7 @@ This document defines every action item for building the Sentiometer study task 
 
 ### 1.3 — Task 03: Backward Masking (Face Detection)
 
-**What**: QUEST-driven adaptive staircase backward masking with all 27 KDEF-cropped neutral faces and 100 pre-generated Mondrian masks. 275 main trials preceded by an 8-trial familiarization block (no accuracy gate). ~10 min.
+**What**: QUEST-driven adaptive staircase backward masking with all 28 KDEF-cropped neutral faces and 100 pre-generated Mondrian masks. 275 main trials preceded by an 8-trial familiarization block (no accuracy gate). ~10 min.
 
 **Acceptance Criteria — wiring**:
 - [ ] `run(outlet, config, ...)` accepts the shared session marker outlet; does NOT create or destroy any session-level LSL streams. Demo mode creates a temporary outlet if none is passed.
@@ -171,7 +171,7 @@ This document defines every action item for building the Sentiometer study task 
 - [ ] Staircase is behind a `Staircase` protocol so tests inject `FixedSoaStaircase` and demo mode uses a fixed `[150, 100, 80, 60, 40]` ms staircase instead of QUEST.
 
 **Acceptance Criteria — stimuli (committed to repo)**:
-- [ ] `src/tasks/03_backward_masking/stimuli/faces/` contains all 27 KDEF-cropped neutral faces (19 female, 8 male). Filenames contain the KDEF expression code `NE`.
+- [ ] `src/tasks/03_backward_masking/stimuli/faces/` contains all 28 KDEF-cropped neutral faces (20 female, 8 male). Filenames contain the KDEF expression code `NE`.
 - [ ] `src/tasks/03_backward_masking/stimuli/masks/` contains 100 procedurally generated Mondrian masks (256×256 PNG).
 - [ ] `scripts/generate_mondrians.py` produces the masks deterministically (seeded per-mask index) so regeneration is byte-identical.
 - [ ] `src/tasks/03_backward_masking/stimuli/README.md` documents the KDEF-cropped source, citation (Dawel et al. 2017; Lundqvist, Flykt & Öhman 1998), licensing status, and that the repo is private until publication.

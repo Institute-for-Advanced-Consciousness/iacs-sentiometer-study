@@ -225,7 +225,7 @@ Practice-phase responses are tracked in the behavioral CSV but **not** emitted a
 
 | Parameter | Value |
 |-----------|-------|
-| Target | 27 KDEF-cropped neutral faces (19 female, 8 male), all used, 256×256 px |
+| Target | 28 KDEF-cropped neutral faces (20 female, 8 male), all used, 256×256 px |
 | Target duration | 1 frame (~17 ms at 60 Hz) |
 | Mask | One of 100 pre-generated Mondrian patterns (256×256), 200 ms |
 | SOA | QUEST adaptive staircase → individual ~50% detection threshold |

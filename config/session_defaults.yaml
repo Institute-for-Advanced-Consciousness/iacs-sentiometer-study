@@ -65,6 +65,12 @@ task04_mind_state:
   meditation_duration_s: 300
   game_start_speed: 1.0
   game_max_speed: 2.5
+  game_speed_increment_interval_s: 30
+  jump_min_height: 80
+  jump_max_height: 200
+  jump_hold_max_ms: 300
+  obstacle_types: ["spike", "tall_rect", "low_barrier"]
+  gong_file: "assets/sounds/Simple_Gong.wav"
 
 task05_ssvep:
   freq_start_hz: 40

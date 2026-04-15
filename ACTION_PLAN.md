@@ -225,39 +225,51 @@ This document defines every action item for building the Sentiometer study task 
 
 ### 1.4 — Task 04: Mind-State Switching
 
-**What**: 5-min gameplay → 1-min break → 5-min meditation. ~12 min total.
+**What**: 5-min gameplay → 1-min break → 5-min meditation. ~11 min total. Three blocks share one Pygame window and one mixer (no PsychoPy / Pygame handoff mid-task).
 
-**Acceptance Criteria — General**:
-- [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
-- [ ] Task reads its config section from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task04_mind_state")`; the shipped section contains `game_duration_s`, `break_duration_s`, `meditation_duration_s`, `game_start_speed`, and `game_max_speed`. Block order (game → break → meditation), game mechanics, and meditation instruction text are hardcoded because they define the paradigm.
-- [ ] All LSL markers prefixed with `task04_`
+**Acceptance Criteria — architecture & wiring**:
+- [ ] `run(outlet, config, ...)` orchestrates three sequential blocks via helper functions in `src/tasks/04_mind_state/game.py` and `src/tasks/04_mind_state/meditation.py`. The task directory starts with a digit, so sibling-module imports inside `task.py` go through `importlib.import_module("tasks.04_mind_state.game")` / `... .meditation"` rather than the `from .` syntax.
+- [ ] Task reads config from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task04_mind_state")`. Shipped keys: `game_duration_s`, `break_duration_s`, `meditation_duration_s`, `game_start_speed`, `game_max_speed`, `game_speed_increment_interval_s`, `jump_min_height`, `jump_max_height`, `jump_hold_max_ms`, `obstacle_types`, `gong_file`.
+- [ ] Side-effecting I/O bundled into a `TaskIO` dataclass; Pygame imported lazily inside `_build_pygame_io`. PsychoPy is **not** imported anywhere in this task.
+- [ ] `game.update_game_state` is a pure function (state, dt_s, input_state, config, rng → events list) so the frame loop can be driven by a mock TaskIO in tests without Pygame.
 
 **Acceptance Criteria — Game (Block 1)**:
-- [ ] Custom Python rhythm-runner (Geometry Dash analog) implemented in Pygame or PsychoPy
-- [ ] Game mechanics: character auto-scrolls right; spacebar = jump; obstacles at regular/irregular intervals
-- [ ] Visuals: simple but engaging (geometric shapes, not placeholder rectangles)
-- [ ] Speed increases gradually over 5 minutes to maintain engagement
-- [ ] Collision detection: clear visual + audio feedback on collision, brief respawn
-- [ ] LSL markers for every game event: `task04_game_start`, `task04_game_end`, `task04_obstacle_appear`, `task04_jump`, `task04_collision`, `task04_score_update`, `task04_speed_increase`
-- [ ] Score displayed on screen
-- [ ] Game ends automatically at 5 minutes regardless of state
+- [ ] Side-scrolling rhythm-runner (Geometry Dash analog) rendered via Pygame.
+- [ ] Controls: spacebar only. Tap = short jump; hold = higher jump (extra upward acceleration while held, capped at `jump_hold_max_ms`).
+- [ ] Visuals: colored player square, parallax-scrolling background (far + near layers), flat ground with vertical grid lines, three obstacle types (`spike`, `tall_rect`, `low_barrier`) in distinct contrasting colors, particle burst + white screen-flash on collision.
+- [ ] **No audio at all during the game block.** `pygame.mixer` is not used in the game loop — the gong module only plays during meditation. This is critical for the EEG gameplay-vs-meditation comparison.
+- [ ] Difficulty ramp: linear speed interpolation from `game_start_speed` to `game_max_speed` over `game_duration_s`, sampled at `game_speed_increment_interval_s` boundaries (one `task04_speed_increase` marker per step). Obstacle spawn interval shrinks linearly from 2.0 s to 0.8 s as speed ramps up.
+- [ ] Collision: remove colliding obstacle, respawn player at spawn x, brief flash grace window, instant resume. Score is tracked and displayed in the HUD.
+- [ ] Game ends at exactly `game_duration_s` regardless of player state.
 
 **Acceptance Criteria — Break (Transition)**:
-- [ ] 1-minute countdown displayed on screen
-- [ ] Text: "Take a moment to relax and stretch. The next part will begin shortly."
-- [ ] LSL markers: `task04_break_start`, `task04_break_end`
+- [ ] Gray Pygame screen with per-second countdown: "Take a moment to relax and stretch. The meditation will begin in N seconds."
+- [ ] Duration = `break_duration_s`. Participant does not need to press anything; auto-resumes.
+- [ ] LSL markers: `task04_break_start`, `task04_break_end`.
 
 **Acceptance Criteria — Meditation (Block 2)**:
-- [ ] Instruction screen displayed: "Close your eyes. Focus your attention on the sensation of your breath at the nostrils. When you feel settled, begin scanning through your body from head to toe. If you notice your mind wandering, gently return your attention to the breath."
-- [ ] After participant presses spacebar to begin, screen dims to black (or very dark gray)
-- [ ] 5-minute timer (not displayed to participant)
-- [ ] Soft audio chime at end of meditation
-- [ ] LSL markers: `task04_meditation_start`, `task04_meditation_end`
+- [ ] Instruction screen text (anapanasati + body scan) shown in the same Pygame window.
+- [ ] After spacebar press: black screen → play `assets/sounds/Simple_Gong.wav` (via `pygame.mixer`) → silent `meditation_duration_s` timer → play gong again → completion screen → wait for spacebar.
+- [ ] LSL markers: `task04_meditation_instructions_start`, `task04_meditation_instructions_end`, `task04_meditation_gong_start`, `task04_meditation_start`, `task04_meditation_gong_end`, `task04_meditation_end`.
 
-**Acceptance Criteria — Overall**:
-- [ ] Task orchestrator (`task04_start`, `task04_end`) runs both blocks in fixed order with break between
-- [ ] `--demo` mode: 30-second game, 10-second break, 30-second meditation. Creates its own temporary outlet if none is passed.
-- [ ] Behavioral log: CSV with game events (timestamp, event_type, score, speed_level) and meditation metadata (start_time, end_time, total_duration)
+**Acceptance Criteria — LSL markers** (all prefixed `task04_`, **19 distinct types**):
+- [ ] Session boundaries: `task04_start`, `task04_end`.
+- [ ] Overall instructions: `task04_instructions_start`, `task04_instructions_end`.
+- [ ] Game boundaries: `task04_game_start`, `task04_game_end`.
+- [ ] In-game events: `task04_obstacle_appear`, `task04_jump_start`, `task04_jump_end`, `task04_collision`, `task04_speed_increase`.
+- [ ] Break: `task04_break_start`, `task04_break_end`.
+- [ ] Meditation: `task04_meditation_instructions_start`, `task04_meditation_instructions_end`, `task04_meditation_gong_start`, `task04_meditation_start`, `task04_meditation_gong_end`, `task04_meditation_end`.
+
+**Acceptance Criteria — demo & logging**:
+- [ ] `demo=True`: 30 s game, 10 s break, 30 s meditation (gong still plays). Completes in ~70 s total. Creates its own temporary outlet if none is passed.
+- [ ] Behavioral log saved to `data/{participant_id}/task04_mind_state_*.csv` with 4 columns: `timestamp, phase, event_type, details`. Game events include `score=`, `speed_level=`, `obstacle_type=`, `jump_height_ms=` in the details column; break/meditation rows carry their block-specific metadata.
+
+**Acceptance Criteria — tests**:
+- [ ] `tests/test_task04_mind_state.py` loads all three modules via `importlib.import_module("tasks.04_mind_state.{task,game,meditation}")`.
+- [ ] Unit tests on `game.update_game_state`: init state shape, jump_start on space press (while grounded), jump_end on release mid-air, speed_increase at step boundaries, obstacle_appear after `initial_spawn_delay_s`, collision detected and player respawned (inject an obstacle at the player's x).
+- [ ] `run_game_block` timer-accuracy test: with `duration_s=1.0` and mock tick returning 1/60 s, the loop exits at ~60 ticks (±2 for FP rounding).
+- [ ] `run_meditation_block` standalone test: all six meditation markers emitted in order, two gong calls, one black-screen call, `wait(duration_s)` invoked once.
+- [ ] Full-orchestrator end-to-end test: scripted input script presses space at frame 30-40 (jump before any obstacle arrives) then goes idle, letting the first spawned obstacle collide with the stationary player. Captures markers via a real LSL inlet and asserts all **19** marker types appear with correct ordering (`task04_start` first, `task04_end` last, instructions before game, game before break, break before meditation). Verifies the CSV schema has the 4 columns and that all three phase labels (`game`, `break`, `meditation`) appear in the rows.
 
 ### 1.5 — Task 05: SSVEP Frequency Ramp-Down
 

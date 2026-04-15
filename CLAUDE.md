@@ -147,7 +147,7 @@ Parameters that **define the paradigm** are hardcoded in the task script, not in
 | 01 Oddball | total_trials, deviant_probability, ISI range, tone duration, rise/fall, response window, volume, max consecutive standards, practice_trials, practice_deviants, practice_hit_threshold, practice_fa_ceiling | Tone frequencies (1000 / 2000 Hz), target dB SPL, audio file names, active button-press task instruction, practice-then-main lifecycle |
 | 02 RGB | trials_per_color, trial duration range, colors list, iti_duration_ms, break_interval_trials, break_duration_s | Fixation cross geometry, no-consecutive-same-color constraint, pure-RGB values, gray-ITI design, passive (no-response) task structure |
 | 03 Masking | total_trials, catch_trial_proportion, mask/fixation/response durations, QUEST parameters (beta/delta/gamma/grain, start/min/max SOA), practice counts, practice_soa_ms, response key bindings, face_size_px, min_face_identities | 3-alternative response scheme, trial structure order, KDEF-cropped neutral stimulus set, single-frame target duration, familiarization-only practice, QUEST as the staircase algorithm |
-| 04 Mind-State | game/break/meditation durations, game start/max speed | Two-block order (game → break → meditation), game mechanics, meditation instruction text, eyes-closed condition |
+| 04 Mind-State | game/break/meditation durations, game start/max speed, game_speed_increment_interval_s, jump_min/max_height, jump_hold_max_ms, obstacle_types list, gong_file path | Three-block order (game → break → meditation), game mechanics and physics constants, parallax background design, "no game audio" principle, meditation instruction text, eyes-closed condition, single-Pygame-window architecture |
 | 05 SSVEP | freq range, freq step, step duration | Checkerboard stimulus, continuous transitions (no gap), fixation cross overlay, passive-fixation task |
 
 ---
@@ -270,27 +270,47 @@ The `stimuli/faces/` and `stimuli/masks/` directories are **committed to the rep
 
 ### Task 04: Mind-State Switching
 
+Three sequential blocks in **one Pygame window** (no PsychoPy/Pygame switching mid-task): gameplay → break → meditation. Total ~11 minutes.
+
 **Block 1 — Gameplay (5 min):**
 
 | Parameter | Value |
 |-----------|-------|
-| Game | Custom Python rhythm-runner (Geometry Dash analog) |
-| Controls | Keyboard (spacebar / arrow keys) |
-| Display | 24" iMac via PsychoPy or Pygame |
-| LSL events | task04_obstacle_appear, task04_jump, task04_collision, task04_score_update |
+| Framework | Pygame (fullscreen at 1280×720 logical, scaled to display) |
+| Game | Custom side-scrolling rhythm-runner (Geometry Dash analog) |
+| Controls | Spacebar only: tap = short jump, hold = high jump (variable height proportional to hold duration, clamped to `jump_hold_max_ms`) |
+| Visuals | Colored player square, parallax-scrolling background (far + near layers), flat ground with grid lines, three obstacle types (spike / tall_rect / low_barrier) in contrasting colors, particle burst + white screen flash on collision |
+| Audio | **None** — no sound effects, no music. Critical for clean EEG comparison between gameplay and meditation blocks. |
+| Difficulty | Speed ramps linearly from `game_start_speed` (1.0×) to `game_max_speed` (2.5×) over 5 minutes at `game_speed_increment_interval_s` (30 s) boundaries. Obstacle spawn interval shrinks with speed. |
+| Collision handling | Remove colliding obstacle, teleport player back to spawn x, brief white-flash grace window, instant resume |
+| Duration | Exactly 5 minutes regardless of player state |
 
-**Transition**: 1-min break with on-screen timer.
+**Transition — Break (1 min):**
+
+Gray Pygame screen with a per-second countdown: *"Take a moment to relax and stretch. The meditation will begin in N seconds."* Auto-resumes; no keypress required.
 
 **Block 2 — Meditation (5 min):**
 
 | Parameter | Value |
 |-----------|-------|
-| Type | Unguided anapanasati + body scan |
-| Instructions | Displayed on screen, then screen dims/blanks |
-| Eyes | Closed |
-| Experience | None required |
+| Framework | Pygame (same window, no handoff) |
+| Flow | Instructions screen → wait for spacebar → black screen + start gong → 5 min silent timer → end gong → completion screen |
+| Audio | `assets/sounds/Simple_Gong.wav` at start and end (the only audio in Task 04) |
+| Eyes | Closed during the silent period |
+| Experience | None required — unguided anapanasati + body scan |
 
-**LSL markers**: `task04_start`, `task04_end`, `task04_game_start`, `task04_game_end`, `task04_meditation_start`, `task04_meditation_end`, `task04_break_start`, `task04_break_end`, plus all in-game events (prefixed `task04_`)
+### LSL markers (all prefixed `task04_`, 19 distinct types)
+
+| Phase | Markers |
+|---|---|
+| Session boundaries | `task04_start`, `task04_end` |
+| Overall instructions | `task04_instructions_start`, `task04_instructions_end` |
+| Game boundaries | `task04_game_start`, `task04_game_end` |
+| In-game events | `task04_obstacle_appear`, `task04_jump_start`, `task04_jump_end`, `task04_collision`, `task04_speed_increase` |
+| Break | `task04_break_start`, `task04_break_end` |
+| Meditation | `task04_meditation_instructions_start`, `task04_meditation_instructions_end`, `task04_meditation_gong_start`, `task04_meditation_start`, `task04_meditation_gong_end`, `task04_meditation_end` |
+
+**Design note — Pygame throughout.** The alternative (Pygame for the game, PsychoPy for the break and meditation screens) would require closing and reopening a display window mid-task, which is fragile (window-placement flicker, lost keyboard focus, LSL clock drift during re-init) and adds zero scientific value. Using Pygame for every phase — including the break countdown, meditation instruction screen, and all-black meditation screen — keeps the display lifecycle clean. `pygame.mixer` handles the gong. This is the only task in the suite that does not use PsychoPy at all.
 
 **Primary endpoint**: SVM classification (gameplay vs. meditation) from Sentiometer, vs. permutation null, after partialling out HRV and motion.
 

@@ -273,27 +273,45 @@ This document defines every action item for building the Sentiometer study task 
 
 ### 1.5 — Task 05: SSVEP Frequency Ramp-Down
 
-**What**: Flickering checkerboard ramping from 40 Hz → 1 Hz in 1-Hz steps. 5 min.
+**What**: Effective SSVEP ramp from 40 Hz → 1 Hz over 300 s, orchestrated by our code but rendered by the **Vayl desktop app**. Our task is a thin client: instruction/completion screens in Pygame + 7 boundary markers on `P013_Task_Markers` + HTTP calls to Vayl's localhost API via `vayl_lsl_bridge.VaylBridge`. Frame-accurate flicker, Nyquist issues, and the full frequency schedule are Vayl's responsibility.
 
-**Acceptance Criteria**:
-- [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
-- [ ] Task reads its config section from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task05_ssvep")`; the shipped section contains `freq_start_hz`, `freq_end_hz`, `freq_step_hz`, and `step_duration_s`. Total step count and total duration are derived at runtime.
-- [ ] Flickering checkerboard pattern with fixation cross overlaid
-- [ ] Flicker is frame-accurate: for each target frequency, compute the optimal on/off frame pattern given 60 Hz refresh
-- [ ] **Known limitation documented**: frequencies above 30 Hz cannot be accurately rendered on a 60 Hz display. Document which frequencies are achievable and which are approximated. Consider: at 60 Hz refresh, 40 Hz flicker is physically impossible (Nyquist). Note this in config and in the CLAUDE.md.
-- [ ] Continuous transitions — no gap between frequency steps
-- [ ] LSL markers (all prefixed `task05_`): `task05_start`, `task05_end`, `task05_freq_step_XX` at each frequency transition
-- [ ] Fixation cross visible throughout
-- [ ] `--demo` mode: 3 steps (40, 20, 1 Hz), 3 seconds each, completes in <10 seconds. Creates its own temporary outlet if none is passed.
-- [ ] Behavioral log: CSV with `step, frequency_hz, onset_time, offset_time, actual_frame_count`
-- [ ] Timing log: actual flip timestamps per frame for post-hoc verification of achieved flicker frequency
+**Acceptance Criteria — architecture & wiring**:
+- [ ] `src/tasks/05_ssvep/vayl_lsl_bridge.py` is a third-party / vendored bridge module. **Do not modify it.** It provides `VaylBridge.status()`, `start_ramp(start_hz, end_hz, duration_seconds)`, `wait_for_ramp(duration_seconds)`, and `turn_off()`, plus it creates the `VaylStim` + `VaylStim_Freq` LSL outlets internally when constructed with a `lsl_stream_name`.
+- [ ] `run(outlet, config, ...)` takes the shared session marker outlet and an optional `bridge: VaylBridge | mock` parameter so tests can inject a mock without touching HTTP or LSL.
+- [ ] The task directory name starts with a digit (`05_ssvep`), so `task.py` loads `vayl_lsl_bridge` via `importlib.import_module("tasks.05_ssvep.vayl_lsl_bridge")`.
+- [ ] Task reads config from `config/session_defaults.yaml` via `get_task_config(session_cfg, "task05_ssvep")`. Shipped keys: `carrier_start_hz` (20.0), `carrier_end_hz` (0.5), `ramp_duration_s` (300), `vayl_lsl_stream_name` ("VaylStim"), `vayl_api_url` ("http://127.0.0.1:9471").
+- [ ] Pygame handles the two participant-facing screens (instructions + completion); PsychoPy is not imported in this task.
 
-**⚠️ CRITICAL NOTE ON DISPLAY REFRESH**: The IRB protocol specifies 40 Hz → 1 Hz, but the 24" iMac runs at 60 Hz. Frequencies above 30 Hz cannot be presented at true temporal frequency on a 60 Hz display. Options:
-  1. Present the nearest achievable frequency and document the actual achieved frequency
-  2. Use a higher-refresh monitor (120 Hz or 240 Hz)
-  3. Accept the limitation and note it in the manuscript
+**Acceptance Criteria — Vayl orchestration**:
+- [ ] Before starting the ramp, the task calls `bridge.status()`. On success, proceed. On `ConnectionError` / `RuntimeError` in production (`demo=False`), raise a clear `RuntimeError` pointing at `vayl_api_url` and instructing the experimenter to start the Vayl desktop app.
+- [ ] In `demo=True` mode, a failing `status()` prints `DEMO MODE: Vayl not connected, simulating ramp timing.` and falls back to `io.wait(ramp_duration_s)` so the orchestration code path (and all 7 markers) is still exercised.
+- [ ] After the instructions screen and before the ramp, the task calls `io.iconify()` so the Pygame window is minimized and Vayl's GPU overlay is fully visible.
+- [ ] The ramp sends `bridge.start_ramp(carrier_start_hz, carrier_end_hz, ramp_duration_s)`, then `bridge.wait_for_ramp(ramp_duration_s)`, then `bridge.turn_off()`.
+- [ ] After the overlay fades out, the task calls `io.restore()` and shows the completion screen.
 
-This must be discussed with Nicco before implementation. For now, implement with frame-accurate patterns and log actual achieved frequencies.
+**Acceptance Criteria — carrier vs. effective frequency**:
+- [ ] `config/session_defaults.yaml` stores **carrier** values (20.0 → 0.5 Hz). Pattern-reversal checkerboard produces **effective SSVEP = 2 × carrier** (40 → 1 Hz), per the documentation in `vayl_lsl_bridge.py` and in `CLAUDE.md` Task 05.
+- [ ] The task's session log records both `carrier_*_hz` and `effective_*_hz` on the `ramp_start` row so downstream analysis code can audit the conversion without re-reading the config.
+- [ ] Tests explicitly assert the conversion: with carrier `(20.0, 0.5)`, effective is `(40.0, 1.0)`.
+
+**Acceptance Criteria — LSL markers on `P013_Task_Markers`** (7 distinct types, all prefixed `task05_`):
+- [ ] `task05_start`, `task05_end` — session boundaries.
+- [ ] `task05_instructions_start`, `task05_instructions_end` — around the Pygame instructions screen.
+- [ ] `task05_ramp_begin` — emitted **immediately before** `bridge.start_ramp()`.
+- [ ] `task05_ramp_end` — emitted after `bridge.wait_for_ramp()` returns.
+- [ ] `task05_overlay_off` — emitted after `bridge.turn_off()` returns (which includes the 500 ms fade).
+- [ ] No per-step or per-frequency markers on the P013 stream. Fine-grained frequency tracking lives in Vayl's own `VaylStim` (marker, JSON events) and `VaylStim_Freq` (continuous float32 at 250 Hz) streams, picked up by LabRecorder alongside everything else.
+
+**Acceptance Criteria — demo & logging**:
+- [ ] `demo=True`: 10 s ramp (carrier 20 → 0.5, effective 40 → 1). Creates its own temporary outlet if none is passed. If Vayl is down, falls back to `sleep(10)` (exercises all 7 markers, prints the fallback notice).
+- [ ] Behavioral log saved to `data/{participant_id}/task05_session_log.csv` with 3 columns: `event, timestamp, details`. `details` is a free-form `key=value; ...` string so the log records Vayl's server-side `wallTimeMs` from the `start_ramp` and `turn_off` responses without introducing per-event columns.
+
+**Acceptance Criteria — tests**:
+- [ ] `tests/test_task05_ssvep.py` loads the task via `importlib.import_module("tasks.05_ssvep.task")` and uses a `MockVaylBridge` so no HTTP traffic to `localhost:9471` happens and no real LSL outlets are created for `VaylStim` / `VaylStim_Freq` during testing.
+- [ ] Full-run test: working mock bridge, all 7 P013 markers emitted in order, one `status()` call, one `start_ramp` call with the configured carrier values, one `wait_for_ramp` call, one `turn_off` call, one `iconify` + one `restore` on the IO, two screens shown, CSV written with the correct schema + `wall_time_ms=` in the `ramp_start` row's details.
+- [ ] Carrier-conversion test: explicit assertion that `(20.0, 0.5)` is passed to `bridge.start_ramp` and that `2 * carrier == (40.0, 1.0)` effective.
+- [ ] Production-failure test: mock bridge with `status()` raising `ConnectionError`, `demo=False` → expect `RuntimeError` matching "Vayl desktop app is not reachable"; assert `start_ramp` is NEVER called.
+- [ ] Demo-fallback test: same failing bridge but `demo=True` → task completes, all 7 markers emitted, `start_ramp` NEVER called, `io.wait(ramp_duration_s)` called once, session log contains a `vayl_status_failed_demo_fallback` row.
 
 ---
 

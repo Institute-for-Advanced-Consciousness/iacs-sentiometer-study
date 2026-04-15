@@ -73,7 +73,11 @@ task04_mind_state:
   gong_file: "assets/sounds/Simple_Gong.wav"
 
 task05_ssvep:
-  freq_start_hz: 40
-  freq_end_hz: 1
-  freq_step_hz: 1
-  step_duration_s: 7.5
+  # Carrier frequencies sent to the Vayl desktop app. Pattern-reversal
+  # produces an effective SSVEP frequency of 2x the carrier, so these
+  # values correspond to 40 Hz -> 1 Hz effective stimulation.
+  carrier_start_hz: 20.0
+  carrier_end_hz: 0.5
+  ramp_duration_s: 300
+  vayl_lsl_stream_name: "VaylStim"
+  vayl_api_url: "http://127.0.0.1:9471"

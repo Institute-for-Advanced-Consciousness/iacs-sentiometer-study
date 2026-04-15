@@ -69,9 +69,10 @@ iacs-sentiometer-study/
 │       │   ├── task.py          # Orchestrator for both blocks
 │       │   ├── game.py          # Custom Geometry Dash clone with LSL markers
 │       │   └── meditation.py    # Meditation timer with LSL markers
-│       └── 05_ssvep/            # SSVEP Frequency Ramp-Down
+│       └── 05_ssvep/            # SSVEP Frequency Ramp-Down (Vayl orchestrator)
 │           ├── __init__.py
-│           └── task.py
+│           ├── task.py
+│           └── vayl_lsl_bridge.py  # Third-party Vayl HTTP+LSL client — do NOT modify
 ├── assets/                      # Shared stimulus assets
 │   ├── sounds/                  # Oddball tones (1000Hz, 2000Hz .wav files)
 │   ├── images/                  # Fixation crosses, instruction screens
@@ -148,7 +149,7 @@ Parameters that **define the paradigm** are hardcoded in the task script, not in
 | 02 RGB | trials_per_color, trial duration range, colors list, iti_duration_ms, break_interval_trials, break_duration_s | Fixation cross geometry, no-consecutive-same-color constraint, pure-RGB values, gray-ITI design, passive (no-response) task structure |
 | 03 Masking | total_trials, catch_trial_proportion, mask/fixation/response durations, QUEST parameters (beta/delta/gamma/grain, start/min/max SOA), practice counts, practice_soa_ms, response key bindings, face_size_px, min_face_identities | 3-alternative response scheme, trial structure order, KDEF-cropped neutral stimulus set, single-frame target duration, familiarization-only practice, QUEST as the staircase algorithm |
 | 04 Mind-State | game/break/meditation durations, game start/max speed, game_speed_increment_interval_s, jump_min/max_height, jump_hold_max_ms, obstacle_types list, gong_file path | Three-block order (game → break → meditation), game mechanics and physics constants, parallax background design, "no game audio" principle, meditation instruction text, eyes-closed condition, single-Pygame-window architecture |
-| 05 SSVEP | freq range, freq step, step duration | Checkerboard stimulus, continuous transitions (no gap), fixation cross overlay, passive-fixation task |
+| 05 SSVEP | carrier_start_hz, carrier_end_hz, ramp_duration_s, vayl_lsl_stream_name, vayl_api_url | Stimulation engine (Vayl desktop app), pattern-reversal 2× multiplier, continuous ramp shape, passive-fixation task, bridge client code (`vayl_lsl_bridge.py` is vendored and must not be modified) |
 
 ---
 
@@ -316,20 +317,48 @@ Gray Pygame screen with a per-second countdown: *"Take a moment to relax and str
 
 ### Task 05: SSVEP Frequency Ramp-Down
 
+**Stimulation is delegated to the Vayl desktop app.** Our task code is a thin orchestrator: it shows instruction and completion screens in Pygame, tells Vayl when to start the ramp via the bridge's HTTP API, and emits seven coarse boundary markers on the shared `P013_Task_Markers` stream. All fine-grained frequency tracking lives in LSL streams that Vayl's bridge creates automatically.
+
 | Parameter | Value |
-|-----------|-------|
-| Stimulus | Flickering checkerboard + fixation cross on 24" iMac |
-| Frequency range | 40 Hz → 1 Hz in 1-Hz steps |
-| Duration per step | 7.5 s |
-| Transition | Continuous (no gap between steps) |
-| Task | Passive fixation, eyes open |
-| Duration | 5 min (300 s) |
+|---|---|
+| Stimulus | Full-screen pattern-reversal checkerboard rendered by Vayl directly on the GPU |
+| Carrier ramp | 20.0 Hz → 0.5 Hz, linear, over 300 s |
+| Effective SSVEP | 40 Hz → 1 Hz (= 2 × carrier — see "Carrier vs. effective" below) |
+| Ramp shape | Continuous (no per-step gaps) |
+| Task | Passive fixation, eyes open, no responses |
+| Duration | ~5 min (300 s ramp + instruction/completion screens) |
 
-**LSL markers**: `task05_start`, `task05_end`, `task05_freq_step_XX` (where XX = Hz, e.g., `task05_freq_step_40`, `task05_freq_step_39`, ...)
+### Carrier vs. effective frequency
 
-**Primary endpoint**: No significant frequency-dependent modulation of Sentiometer (stability test). EEG SSVEP entrainment confirms stimulus effectiveness.
+Pattern-reversal checkerboards produce **two visual events per carrier cycle** (black → white and white → black), so the effective SSVEP stimulation frequency is `2 × carrier_hz`. `config/session_defaults.yaml` stores the **carrier** values so they match what gets POSTed to Vayl's API; the effective SSVEP rate is documented in this table and reported by Vayl's own streams. Our P013 marker stream only emits coarse boundaries — we do not duplicate the fine-grained frequency data.
 
-**Exploratory**: Sentiometer amplitude during gamma (30–40 Hz) vs. delta (1–4 Hz) stimulation.
+### Architecture
+
+- **Vayl desktop app** runs on the stimulus iMac and must be launched **before** Task 05 starts. The task checks connectivity via `bridge.status()` at startup and raises a clear error in production if the app is not reachable. In `--demo` mode a missing Vayl gracefully falls back to a `sleep(duration_s)` simulation so the orchestration code path is still exercised.
+- **`vayl_lsl_bridge.VaylBridge`** (committed at `src/tasks/05_ssvep/vayl_lsl_bridge.py`, **do not modify**) is the Python client: it talks to Vayl's localhost HTTP API at `http://127.0.0.1:9471`, creates its own LSL outlets, and (when a ramp is active) runs a background thread pushing interpolated effective-frequency samples at 250 Hz to `VaylStim_Freq`.
+- **Pygame** (not PsychoPy) handles the instruction and completion screens so there is exactly one display-framework stack alongside Vayl's overlay. Between those screens the Pygame window is `iconify`'d so Vayl's overlay is visible to the participant.
+
+### LSL streams added by Task 05
+
+| Stream name | Type | Rate | Content |
+|---|---|---|---|
+| `VaylStim` | Markers (string/JSON) | irregular | `ramp_start`, `ramp_stop`, `overlay_off` events with `wallTimeMs`, `stimFreqHz`, `stimFreqEndHz`, `carrierHz`, `carrierEndHz` |
+| `VaylStim_Freq` | Stimulus (float32) | 250 Hz | Continuous interpolated effective SSVEP frequency; pushes 0.0 when overlay is off |
+
+LabRecorder picks up both of these alongside `P013_Task_Markers`, the Sentiometer stream, the BrainVision EEG stream, and the CGX AIM-2 stream, producing a single XDF per session where every relevant signal is already aligned on the LSL clock.
+
+### LSL markers (all prefixed `task05_`, **7 distinct types on `P013_Task_Markers`**)
+
+| Phase | Markers |
+|---|---|
+| Session boundaries | `task05_start`, `task05_end` |
+| Instructions | `task05_instructions_start`, `task05_instructions_end` |
+| Ramp boundaries | `task05_ramp_begin` (just before `bridge.start_ramp()`), `task05_ramp_end` (after `bridge.wait_for_ramp()` returns) |
+| Overlay off | `task05_overlay_off` (after `bridge.turn_off()` fades the overlay) |
+
+**Primary endpoint**: No significant frequency-dependent modulation of the Sentiometer signal (stability test). EEG SSVEP entrainment on `VaylStim_Freq` confirms stimulus effectiveness.
+
+**Exploratory**: Sentiometer amplitude during gamma (30–40 Hz effective) vs. delta (1–4 Hz effective) stimulation.
 
 ---
 
@@ -455,6 +484,7 @@ Note: The KDEF neutral faces and procedurally-generated Mondrian masks for Task 
 | BrainVision 64-ch EEG | Gold-standard neural recording | BrainVision Recorder → LSL | EEG acquisition PC |
 | CGX AIM-2 | EOG, chin EMG, HRV, respiration, GSR, SpO₂ | CGX software → LSL | CGX acquisition PC |
 | 24" iMac | Stimulus display + task marker stream | PsychoPy/Pygame, `P013_Task_Markers` LSL | **Stimulus computer** (runs `src/tasks/` code) |
+| Vayl desktop app | GPU-driven SSVEP checkerboard overlay for Task 05 | Localhost HTTP API (port 9471) + its own `VaylStim` / `VaylStim_Freq` LSL streams | Stimulus computer (must be launched before Task 05) |
 | Sony XBA-100 | Audio delivery | 3.5mm jack | Connected to stimulus computer |
 | Ozlo Sleepbuds | Sleep-phase audio (nap only) | Bluetooth | N/A |
 | Mavogel eye mask | Light blocking (nap only) | N/A | N/A |

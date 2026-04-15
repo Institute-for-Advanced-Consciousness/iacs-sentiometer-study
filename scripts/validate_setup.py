@@ -273,7 +273,7 @@ def check_vayl_reachable() -> CheckResult:
             "WARN",
             (
                 f"not reachable ({exc}); needed for Task 05 only "
-                "(Install from lab shared drive)"
+                "(see README for install link)"
             ),
             required=False,
         )

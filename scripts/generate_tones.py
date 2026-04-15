@@ -6,9 +6,11 @@ Oddball / P300):
 * ``tone_1000hz.wav`` — 1000 Hz standard tone
 * ``tone_2000hz.wav`` — 2000 Hz deviant tone
 
-Both tones are 50 ms total duration with a 5 ms raised-cosine rise/fall
-envelope, mono, 44.1 kHz sample rate, 16-bit PCM. Peak amplitude is set
-to 80% of int16 full-scale to leave headroom for the playback chain.
+Both tones are 100 ms total duration with a 10 ms raised-cosine rise/fall
+envelope, mono, 44.1 kHz sample rate, 16-bit PCM. These parameters match
+the ERP CORE standardized auditory oddball protocol (Kappenman et al.,
+2021, NeuroImage). Peak amplitude is set to 80% of int16 full-scale to
+leave headroom for the playback chain.
 
 Run with:
 
@@ -26,8 +28,8 @@ import numpy as np
 from scipy.io import wavfile
 
 SAMPLE_RATE_HZ = 44_100
-TONE_DURATION_S = 0.050  # 50 ms total
-RAMP_DURATION_S = 0.005  # 5 ms rise / 5 ms fall
+TONE_DURATION_S = 0.100  # 100 ms total (ERP CORE)
+RAMP_DURATION_S = 0.010  # 10 ms rise / 10 ms fall (ERP CORE)
 PEAK_FRACTION = 0.8  # 80% of int16 full-scale (headroom for playback)
 
 STANDARD_FREQ_HZ = 1_000

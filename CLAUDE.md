@@ -137,14 +137,16 @@ Total on-site: ~4.25 hours.
 
 | Parameter | Value |
 |-----------|-------|
-| Standard tone | 1000 Hz, ~70 dB SPL, 50 ms (5 ms rise/fall) |
-| Deviant tone | 2000 Hz, ~70 dB SPL, 50 ms (5 ms rise/fall) |
+| Standard tone | 1000 Hz, ~70 dB SPL, 100 ms (10 ms rise/fall) |
+| Deviant tone | 2000 Hz, ~70 dB SPL, 100 ms (10 ms rise/fall) |
 | Ratio | 80% standard / 20% deviant |
-| ISI | 1000–1200 ms (uniform jitter) |
+| ISI | 1100–1500 ms (jittered) |
 | Total trials | ~250 (200 standard + 50 deviant) |
 | Task | Active: button press on deviant |
 | Audio delivery | Sony XBA-100 in-ear headphones |
 | Duration | ~5 min |
+
+**Protocol note**: Tone duration, rise/fall envelope, and ISI range match the **ERP CORE** standardized auditory oddball protocol (Kappenman et al., 2021, *NeuroImage*). This keeps our P300 data comparable with the published ERP CORE reference dataset.
 
 **LSL markers to emit**: `task01_start`, `task01_end`, `task01_tone_standard`, `task01_tone_deviant`, `task01_response_hit`, `task01_response_false_alarm`, `task01_response_miss`
 
@@ -339,6 +341,8 @@ The GUI opens on launch and collects/validates everything needed before the sess
 3. Run `uv run ruff check src/` before committing
 4. Run `uv run pytest` before pushing
 5. PR into `main` with description of what changed and why
+
+**PsychoPy tasks only run on the macOS stimulus computer.** The Windows dev machine is used for device code, scaffolding, and non-display tests only.
 
 ---
 

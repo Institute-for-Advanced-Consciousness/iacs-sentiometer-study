@@ -76,15 +76,15 @@ This document defines every action item for building the Sentiometer study task 
 
 ### 1.1 — Task 01: Auditory Oddball (P300)
 
-**What**: Standard two-tone oddball with active button press. ~250 trials, ~5 min.
+**What**: Standard two-tone oddball with active button press. ~250 trials, ~5 min. Stimulus and timing parameters match the **ERP CORE** standardized auditory oddball protocol (Kappenman et al., 2021, *NeuroImage*).
 
 **Acceptance Criteria**:
 - [ ] Task accepts `outlet: StreamOutlet` as a required parameter; does NOT create or destroy any LSL streams
 - [ ] `config.yaml` contains all parameters from IRB (frequencies, durations, ISI range, trial counts, ratio)
-- [ ] Pre-generated .wav files for 1000 Hz and 2000 Hz tones (50 ms, 5 ms rise/fall, 44.1 kHz, 16-bit) in `assets/sounds/`
+- [ ] Pre-generated .wav files for 1000 Hz and 2000 Hz tones (100 ms total, 10 ms raised-cosine rise/fall, 44.1 kHz, 16-bit) in `assets/sounds/`
 - [ ] `scripts/generate_tones.py` produces these files reproducibly
 - [ ] Trial sequence: pseudorandom with constraint that no more than 3 consecutive standards occur between deviants
-- [ ] ISI jittered uniformly 1000–1200 ms
+- [ ] ISI jittered uniformly 1100–1500 ms
 - [ ] LSL markers emitted (all prefixed `task01_`): `task01_start`, `task01_end`, `task01_tone_standard`, `task01_tone_deviant`, `task01_response_hit`, `task01_response_false_alarm`, `task01_response_miss`
 - [ ] Marker timestamp is at tone onset (not after audio buffer fill)
 - [ ] Button press within 200–1000 ms post-deviant = hit; button press after standard = false alarm

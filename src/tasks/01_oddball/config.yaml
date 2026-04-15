@@ -1,2 +1,27 @@
 # Task 01: Auditory Oddball (P300)
-# Parameters per IRB Protocol P013
+# Parameters per IRB Protocol P013, aligned with the ERP CORE standardized
+# protocol (Kappenman et al., 2021, NeuroImage).
+
+# ----- tone stimuli ----------------------------------------------------------
+standard_freq_hz: 1000
+deviant_freq_hz: 2000
+tone_duration_ms: 100        # ERP CORE: 100 ms total tone duration
+rise_fall_ms: 10             # ERP CORE: 10 ms raised-cosine rise/fall
+tone_level_db_spl: 70        # Sony XBA-100 in-ear headphones
+
+# ----- trial structure -------------------------------------------------------
+n_trials_total: 250
+standard_ratio: 0.8          # 80% standard (200 trials), 20% deviant (50 trials)
+max_consecutive_standards: 3 # no more than 3 standards between deviants
+
+# ----- timing ----------------------------------------------------------------
+isi_min_ms: 1100             # ERP CORE: ISI uniform 1100-1500 ms
+isi_max_ms: 1500
+
+# ----- response --------------------------------------------------------------
+response_key: space          # button press on deviant
+response_window_min_ms: 200  # valid hit window relative to deviant onset
+response_window_max_ms: 1000
+
+# ----- demo overrides --------------------------------------------------------
+demo_n_trials: 20            # 16 standard + 4 deviant for --demo mode

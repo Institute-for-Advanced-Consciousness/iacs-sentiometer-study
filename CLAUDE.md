@@ -45,8 +45,7 @@ iacs-sentiometer-study/
 │   │   └── config.py            # YAML config loader
 │   └── tasks/                   # TASK LAYER
 │       ├── __init__.py
-│       ├── launcher.py          # Session runtime (headless, testable)
-│       ├── launcher_gui.py      # Tkinter pre-session GUI (entry point)
+│       ├── launcher.py          # Rich+click terminal launcher (single entry point)
 │       ├── common/              # Shared utilities across all tasks
 │       │   ├── __init__.py
 │       │   ├── lsl_markers.py   # LSL marker stream creation & event sending
@@ -410,45 +409,51 @@ LabRecorder picks up both of these alongside `P013_Task_Markers`, the Sentiomete
 
 ## Session Launcher
 
-**The launcher is the single entry point for every session.** Nothing else is run by hand. `uv run python -m tasks.launcher` (no arguments required) opens a GUI that the experimenter uses to configure and start the session. Only after the experimenter clicks **Start Session** in the GUI does any task code run.
+**The launcher is the single entry point for every session.** It is a terminal application built with `click` (CLI) and `rich` (formatted output). No GUI — just a Rich-rendered pre-flight flow and a clean CLI. `uv run python -m tasks.launcher --participant-id P001`.
 
-### Launcher GUI (pre-session setup screen)
+### Pre-session flow (before any task runs)
 
-The GUI opens on launch and collects/validates everything needed before the session begins:
+1. **Config summary.** The launcher loads `config/session_defaults.yaml` and prints a Rich `Table` per task showing every parameter with its current value.
+2. **Edit offer.** `Edit any parameters? (y/N)` — if yes, the launcher opens the YAML in `$EDITOR` (or `notepad` on Windows), waits for the editor to exit, and reloads the file. Edits apply to this session only (and persist on disk — there is no in-memory staging).
+3. **Outlet creation.** Creates the `P013_Task_Markers` LSL outlet via `create_session_outlet(participant_id)` so LabRecorder can discover it.
+4. **Pre-flight checklist** (Rich table, each row shows `OK` / `WARN` / `FAIL` plus a Notes column):
+   - Participant ID present — hard-required.
+   - P013 marker outlet created — hard-required.
+   - EEG stream — any LSL stream with `type=EEG` (warn only; does not block).
+   - Sentiometer stream — LSL stream named `IACS_Sentiometer` (warn only).
+   - Vayl app reachable at `http://127.0.0.1:9471` (warn only; needed for Task 05 only).
+5. **LabRecorder confirmation.** Manual — the launcher prompts "Is LabRecorder running and recording? (press Enter to confirm)".
+6. **Go.** Final "Press Enter to begin session" confirmation.
 
-**Participant & session metadata**
-- Participant ID (text field, required, validated against `P\d{3}` format)
-- Session date (auto-filled, editable)
-- Experimenter initials (text field)
-- Notes (free-text box for anything RAs want to record)
+All LSL checks and the Vayl check are skipped in `--demo` mode.
 
-**Stream setup & health checks** (live-updating status panel)
-- **Task marker stream**: button to create the `P013_Task_Markers` outlet with the entered participant ID baked into the source ID. Once created, show stream name, source ID, and a green "LIVE" indicator so RAs on the LabRecorder machine can confirm they see it on the network.
-- **Sentiometer check**: button to run a connection/health check against the Sentiometer (via its LSL stream on the network, or via direct serial test if co-located). Displays: stream found (Y/N), sample rate, last sample timestamp, channel count. Must be green before Start Session is enabled.
-- **EEG stream check**: scans the network for the BrainVision LSL stream. Displays stream name and status.
-- **CGX AIM-2 check**: scans the network for the CGX LSL stream. Displays stream name and status.
-- **LabRecorder confirmation**: manual checkbox — "LabRecorder is recording all four streams (task markers, Sentiometer, EEG, CGX)". Shows the exact stream names RAs should look for so they can locate them quickly on the LabRecorder machine.
+### Session runtime
 
-**Session controls**
-- **Start Session** button: disabled until participant ID is valid and all required stream checks are green (LabRecorder checkbox ticked). On click: sends `session_start` marker, closes the GUI, and launches Task 01.
-- **Abort** button: available at any time once the session is running. Sends `session_end` marker, closes the outlet, saves partial data, logs the abort reason.
+1. Sends `session_start` on `P013_Task_Markers`.
+2. Writes `data/{participant_id}/session_log.json` with a config snapshot, per-task start/end timestamps (updated as each task completes), and system info. The log is re-written after every task so a crash mid-session still leaves a partial record on disk.
+3. Runs Tasks 01 → 05 in order. Each task module is loaded via `importlib.import_module("tasks.0N_name.task")` (digit-prefixed directory names block plain `import`) and called with `run(outlet, config, participant_id, demo, output_dir)`. Each task emits its own `task0N_start` / `task0N_end` markers internally — **the launcher does not duplicate them.**
+4. Between tasks, the launcher shows a "Task X complete. (N done, M remaining.) Press Enter to continue" prompt.
+5. On a per-task failure (Python exception inside `run()`), the task is marked `failed` in the session log, the error message is recorded, and the session continues to the next task. (`KeyboardInterrupt` is the exception — see below.)
+6. After all tasks complete, sends `session_end` and closes the outlet.
 
-### Launcher responsibilities (post-GUI, during session)
+### Graceful abort
 
-1. Holds the `P013_Task_Markers` outlet for the full session (created in the GUI, never recreated)
-2. Runs each task in protocol order (01 → 05), passing the shared marker outlet to each task's `run()` function
-3. Between tasks, shows a brief "Task X complete — press Enter / click Continue to proceed to Task Y" screen so the experimenter can check in with the participant
-4. Logs session metadata to `data/{participant_id}/session_log.json` (participant ID, experimenter, date, task start/end times, notes, any abort reasons)
-5. Sends `session_end` marker and closes the outlet after all tasks complete
-6. Handles graceful abort at any point: sends `session_end`, closes outlet, saves partial data, logs reason
+On `KeyboardInterrupt` (Ctrl+C) at any point during the task loop:
+1. `session_abort` marker sent on `P013_Task_Markers`.
+2. Session log updated with `status=aborted`, `aborted_during=<task name>`, `abort_reason=KeyboardInterrupt (Ctrl+C)`, and the in-progress task marked `aborted`.
+3. The partial log is persisted and the outlet is cleanly released.
+4. Later tasks are simply absent from the log — they never entered the loop.
 
-### CLI flags (all optional — GUI is the primary interface)
-- `--participant-id P001` — pre-fills the participant ID field in the GUI
-- `--skip-to N` — skip to task N (crash recovery)
-- `--demo` — runs all tasks in demo mode (short trial counts, for testing)
-- `--no-gui` — headless fallback for CI/testing only; never used in a real session
+### CLI flags
 
-**Framework**: Tkinter (stdlib, no extra dependency). If we later need richer widgets, revisit with PyQt/PySide. Keep the GUI code in `src/tasks/launcher_gui.py` separate from the session-runtime code in `src/tasks/launcher.py` so the session logic stays testable without a display.
+- `--participant-id P001` / `-p P001` — participant ID. Prompted interactively if omitted.
+- `--demo` — pass `demo=True` to every task and skip all pre-flight LSL/Vayl checks.
+- `--skip-to N` — start from task N (1-5). Tasks 1..N-1 are marked `skipped` in the session log. Useful for recovery after a mid-session crash.
+- `--config PATH` — override the session config YAML path.
+
+### Headless / testable runtime
+
+`launcher.run_session(participant_id, *, interactive=False, task_runner=..., ...)` is the testable entry point. `interactive=False` bypasses every `Prompt` / `Confirm` call so no stdin is read; `task_runner` injects a callable that stands in for `_run_task` so the orchestration logic (session log, skip-to, abort, demo propagation) can be exercised without importing and running the five task modules. Tests in `tests/test_launcher.py` use this to verify end-to-end behavior without PsychoPy, Pygame, Vayl, or real stimuli on disk.
 
 ---
 

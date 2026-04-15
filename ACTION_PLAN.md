@@ -317,45 +317,59 @@ This document defines every action item for building the Sentiometer study task 
 
 ## Phase 2: Session Launcher
 
-**Note on ordering**: The launcher GUI scaffold (2.1) is built *before* the individual tasks in Phase 1 so that every task can be exercised end-to-end through the real launcher flow from day one. The GUI is the only supported entry point for running a session — there is no hand-run task script in production.
+**Note on ordering**: Phase 2.1 was originally planned ahead of Phase 1 so every task could be exercised through the real launcher flow from day one. In practice we built Tasks 01-05 first against stable `TaskIO` + `StreamOutlet` contracts, and the launcher lands as the final piece that stitches everything together. This ordering change is fine because each task module is fully tested in isolation and the launcher's orchestration logic is independently verified via dependency injection.
 
-### 2.1 — Build the session launcher GUI + runtime
+### 2.1 — Build the session launcher (terminal, Rich + click)
 
-**What**: Tkinter-based GUI launcher (`src/tasks/launcher_gui.py`) wired to a session runtime (`src/tasks/launcher.py`). The GUI is the single entry point; no session ever starts without it. See the **Session Launcher** section of `CLAUDE.md` for the full spec.
+**What**: Rich-formatted terminal launcher (`src/tasks/launcher.py`). No GUI. A `click` CLI + Rich tables + Rich prompts for the pre-flight flow, then a clean task sequencer that runs Tasks 01 -> 05 with a persistent `P013_Task_Markers` outlet. See the **Session Launcher** section of `CLAUDE.md` for the full spec.
 
-**Acceptance Criteria — entry & GUI layout**:
-- [ ] Entry point: `uv run python -m tasks.launcher` opens the GUI with no CLI args required
-- [ ] GUI is built with Tkinter (stdlib) — no new dependency
-- [ ] GUI code lives in `src/tasks/launcher_gui.py`; session-runtime code lives in `src/tasks/launcher.py`. Runtime is importable and testable without a display.
-- [ ] GUI fields: Participant ID (required, validated as `P\d{3}`), session date (auto-filled, editable), experimenter initials, notes (free text)
-- [ ] Optional CLI flags pre-fill the GUI: `--participant-id P001`, `--demo`, `--skip-to N`. `--no-gui` runs headless (CI only).
+**Framework decision (revised from the original plan)**: The original spec called for a Tkinter GUI. We dropped that in favor of a terminal-based launcher because (a) the RA's workflow is terminal-centric on the stimulus iMac anyway, (b) Rich renders structured tables beautifully in any reasonable terminal, (c) the `Confirm` / `Prompt` primitives handle validation cleanly with one line each, and (d) testing is dramatically simpler when the whole launcher can run in a single process with `interactive=False` and no display.
 
-**Acceptance Criteria — stream setup & checks panel**:
-- [ ] **Create marker stream** button: calls `create_session_outlet(participant_id)` to create the `P013_Task_Markers` outlet with source ID `P013_{participant_id}`. After creation, the GUI displays stream name + source ID + a green "LIVE" indicator so RAs on the LabRecorder machine can locate it.
-- [ ] **Sentiometer check** button: scans the network for the Sentiometer LSL stream and reports stream found (Y/N), sample rate, last sample timestamp, channel count. Turns green on success.
-- [ ] **EEG check** button: scans for the BrainVision LSL stream, reports name + status.
-- [ ] **CGX AIM-2 check** button: scans for the CGX LSL stream, reports name + status.
-- [ ] **LabRecorder confirmation** checkbox: manual tick to confirm LabRecorder is recording all four streams. GUI prints the exact stream names next to the checkbox so RAs can cross-reference them.
-- [ ] All stream checks re-runnable without restarting the GUI.
+**Acceptance Criteria — CLI entry & flags**:
+- [ ] Single entry point: `uv run python -m tasks.launcher` (CLI flags optional).
+- [ ] `--participant-id P001` / `-p P001`: participant ID. Prompted interactively via Rich if omitted.
+- [ ] `--demo`: propagate `demo=True` to every task and skip all pre-flight LSL/Vayl checks.
+- [ ] `--skip-to N`: 1-indexed starting task. Tasks 1..N-1 marked `skipped` in the session log. `--skip-to 0` or `--skip-to 6` rejected with a clear error. Used for crash recovery.
+- [ ] `--config PATH`: override the session config YAML path.
+- [ ] The `main()` function is a `click.command` wrapping a pure `run_session()` core that tests can call directly.
 
-**Acceptance Criteria — session config panel**:
-- [ ] Launcher loads `config/session_defaults.yaml` at startup via `load_session_config()` and displays a summary table of all task parameters grouped by task, with the current values.
-- [ ] An **Edit** affordance (inline table or modal) lets the RA modify any value before the session begins. Edited values are typed-checked against the defaults (int/float/bool/list) and used for *this session only*; the on-disk defaults file is never overwritten.
-- [ ] Applying `--demo` overrides short-form values (e.g. `total_trials = 20` for oddball, `step_duration_s = 1.0` for SSVEP) on top of the loaded config without mutating the master dict.
-- [ ] The per-task dict is passed into each task's `run()` function so tasks never reload the YAML themselves.
+**Acceptance Criteria — pre-session flow (interactive mode)**:
+- [ ] Loads `config/session_defaults.yaml` via `load_session_config()` and prints a Rich `Table` per task showing every parameter with its current value.
+- [ ] `Confirm.ask("Edit any parameters?")` — on yes, opens the YAML in `$EDITOR` (`notepad` fallback on Windows), waits for the editor to exit, reloads the file in place. Edits persist on disk.
+- [ ] Creates the `P013_Task_Markers` outlet via `create_session_outlet(participant_id)` with source ID `P013_{participant_id}`. Prints the stream name and source ID so the RA on the LabRecorder machine can locate it.
+- [ ] Runs a pre-flight checklist (Rich table, `OK` / `WARN` / `FAIL` column + Notes column): participant ID present, marker outlet created, EEG stream (`type=EEG`), Sentiometer stream (`name=IACS_Sentiometer`), Vayl app (`http://127.0.0.1:9471/api/status`). Missing optional streams emit `WARN` and do not block. Demo mode skips the three optional checks entirely.
+- [ ] Manual LabRecorder confirmation prompt ("Is LabRecorder running and recording? Press Enter to confirm"). Skipped in demo mode.
+- [ ] Final "Press Enter to begin session" confirmation.
 
-**Acceptance Criteria — session controls**:
-- [ ] **Start Session** button disabled until: participant ID valid, marker stream created, Sentiometer check green, EEG check green, CGX check green, LabRecorder checkbox ticked
-- [ ] On Start: GUI sends `session_start` marker, closes the setup window, and hands control to the session runtime
-- [ ] Session runtime runs tasks 01–05 in order, passing the shared outlet to each task's `run()` function
-- [ ] Between tasks: pauses with "Task X complete — Continue to Task Y?" prompt
-- [ ] **Abort** available at any point: sends `session_end` marker, closes outlet, saves partial data, logs reason
+**Acceptance Criteria — session runtime**:
+- [ ] Sends `session_start` on `P013_Task_Markers` before the first task.
+- [ ] Writes `data/{participant_id}/session_log.json` with top-level fields: `participant_id`, `session_date`, `start_time`, `end_time`, `status`, `demo`, `skip_to`, `config_snapshot`, `tasks`, `abort_reason`, `aborted_during`, `system_info` (python, platform, system).
+- [ ] The log is re-persisted after every task-state change (running -> completed / failed / aborted / skipped) so a crash always leaves a partial record on disk.
+- [ ] Iterates over `TASK_ORDER = [(task_name, module_path), ...]` and loads each task via `importlib.import_module(module_path)` (digit-prefixed directory names block plain `import`).
+- [ ] Calls each task's `run()` with the shared outlet, its own config section via `get_task_config()`, the participant ID, `demo`, and `output_dir=data_root` (the `data/` root, not the per-participant subdirectory — tasks append the participant ID themselves).
+- [ ] **Does NOT emit `task0N_start` / `task0N_end`** — each task's `run()` already emits those internally.
+- [ ] Between tasks, shows a Rich prompt: `"Task X complete. (N done, M remaining.) Press Enter to continue"`.
+- [ ] After all tasks complete, sends `session_end`, sets `status=completed`, writes the final log, and releases the outlet.
+- [ ] A task that returns `("failed", error_message)` does NOT abort the session — the failure is recorded in `tasks[task_name]` with an `error` field and the next task proceeds.
 
-**Acceptance Criteria — logging & recovery**:
-- [ ] Session metadata written to `data/{participant_id}/session_log.json`: participant ID, experimenter, date, notes, task start/end times, abort reason (if any), list of streams detected at start
-- [ ] `--skip-to N` starts from task N (crash recovery)
-- [ ] `--demo` propagates to all tasks
-- [ ] Graceful abort (Ctrl+C or Abort button) always sends `session_end` before exit
+**Acceptance Criteria — graceful abort**:
+- [ ] `KeyboardInterrupt` (Ctrl+C) is caught by the task loop. The launcher sends a `session_abort` marker on `P013_Task_Markers`, sets `session_log["status"] = "aborted"`, records `abort_reason = "KeyboardInterrupt (Ctrl+C)"` and `aborted_during = <current task name>`, marks the in-progress task as `aborted`, and persists the partial log.
+- [ ] Tasks after the aborted one do not appear in the log (never entered the loop).
+- [ ] The outlet is cleanly released in the `finally` block.
+
+**Acceptance Criteria — testable headless mode**:
+- [ ] `run_session(participant_id, *, interactive=False, task_runner=<callable>, ...)` runs the full orchestration without stdin reads.
+- [ ] `interactive=False` bypasses every `Prompt` and `Confirm` call — no pre-flight table, no edit prompt, no "Press Enter to begin", no between-task prompts.
+- [ ] `task_runner` is a dependency-injection hook with signature `(task_name, module_path, outlet, session_config, participant_id, demo, data_root) -> (status, error)`. Tests pass a recording mock so the launcher's orchestration (log writing, skip-to, abort, demo propagation) can be verified without actually importing or invoking any task module.
+
+**Acceptance Criteria — tests** (`tests/test_launcher.py`, 8 tests):
+- [ ] `test_all_tasks_called_in_order`: all five tasks appear in `runner.calls` in order, with the correct `importlib` module paths.
+- [ ] `test_session_log_is_written_and_valid`: `session_log.json` exists at the expected path; `participant_id`, `status=completed`, `session_date`, `start_time`, `end_time`, `config_snapshot`, `system_info`, and per-task `start` / `end` / `status=completed` rows are all populated.
+- [ ] `test_skip_to_3_marks_early_tasks_skipped`: only tasks 3-5 are called; tasks 1 and 2 have `status=skipped` and `reason=skip_to=3` in the log.
+- [ ] `test_skip_to_out_of_range_raises`: `skip_to=0` and `skip_to=6` both raise `ValueError`.
+- [ ] `test_demo_true_propagates_to_all_tasks` and `test_demo_false_propagates_to_all_tasks`: every task_runner call receives the correct `demo` value.
+- [ ] `test_ctrl_c_mid_session_saves_partial_log`: `KeyboardInterrupt` during task 3 produces `result["status"]="aborted"`, `aborted_during="task03_backward_masking"`, `abort_reason` containing "KeyboardInterrupt". Earlier tasks remain `completed`; later tasks are absent from `log["tasks"]`.
+- [ ] `test_task_failure_recorded_but_session_continues`: a task returning `("failed", error)` does not abort the session — later tasks still run and the failure is recorded with an `error` field.
 
 ---
 

@@ -1,0 +1,43 @@
+#!/bin/bash
+# Launcher executable for the Launch P013.app bundle.
+#
+# When Finder double-clicks the .app, macOS runs this file with no working
+# directory guarantee, so we resolve the repo root from the bundle's own
+# location: this file lives at
+#   <repo>/Launch P013.app/Contents/MacOS/run
+# so three levels up gets us back to the repo.
+
+set -u
+
+BUNDLE_EXEC_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$BUNDLE_EXEC_DIR/../../.." && pwd)"
+
+cd "$REPO_ROOT" || {
+    /usr/bin/osascript -e "display alert \"P013 launcher\" message \"Could not cd to repo root ($REPO_ROOT).\""
+    exit 1
+}
+
+# Make sure `uv` is on PATH even when Finder launches us with a minimal env.
+# Users typically install uv via Homebrew or the official curl installer,
+# which drops binaries in one of these locations.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
+if ! command -v uv >/dev/null 2>&1; then
+    /usr/bin/osascript -e "display alert \"uv not found\" message \"The 'uv' command is not on PATH. Install from https://docs.astral.sh/uv/ and try again.\""
+    exit 1
+fi
+
+# Run the GUI. Log stdout+stderr so the RA has something to check if the
+# window never appears.
+LOG_DIR="$REPO_ROOT/data"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/gui_launcher.log"
+
+uv run python -m tasks.gui_launcher >>"$LOG_FILE" 2>&1
+exit_code=$?
+
+if [ $exit_code -ne 0 ]; then
+    /usr/bin/osascript -e "display alert \"Launcher exited with errors\" message \"Exit code $exit_code. Check $LOG_FILE for details.\""
+fi
+
+exit $exit_code

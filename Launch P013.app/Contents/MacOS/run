@@ -36,7 +36,12 @@ LOG_FILE="$LOG_DIR/gui_launcher.log"
 uv run python -m tasks.gui_launcher >>"$LOG_FILE" 2>&1
 exit_code=$?
 
-if [ $exit_code -ne 0 ]; then
+# pyglet 1.5.x on macOS can't cleanly tear down its ObjC text views, so
+# closing the GUI window often produces exit code 1 even though the session
+# itself completed fine and session_log.json was written. Only surface an
+# alert for codes that indicate a genuine crash (>= 2). Exit 0 and 1 are
+# treated as "normal close".
+if [ $exit_code -ge 2 ]; then
     /usr/bin/osascript -e "display alert \"Launcher exited with errors\" message \"Exit code $exit_code. Check $LOG_FILE for details.\""
 fi
 

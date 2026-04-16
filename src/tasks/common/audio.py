@@ -22,13 +22,23 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
 
-if TYPE_CHECKING:
-    from psychopy.sound import Sound
+# Force PsychoPy's sound backend to pygame before any Sound() call. PsychoPy
+# 2025 defaults to the PTB backend, which requires the `psychtoolbox` package
+# we don't ship. pygame is already a hard dep of the `tasks` extra.
+#
+# PsychoPy 2025's `Sound` class hardcodes `backend = "ptb"` as a class
+# attribute and does NOT consult `prefs.hardware['audioLib']` at Sound()
+# construction time, so we have to override it directly on the class. We also
+# set the pref so any code that DOES read it sees the same answer.
+from psychopy import prefs
+from psychopy.sound import Sound
+
+prefs.hardware["audioLib"] = ["pygame"]
+Sound.backend = "pygame"
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ASSETS_SOUNDS_DIR = REPO_ROOT / "assets" / "sounds"
@@ -62,9 +72,6 @@ def load_tone(filepath: str | Path) -> Sound:
     path = Path(filepath)
     if not path.exists():
         raise FileNotFoundError(f"Audio file not found: {path.resolve()}")
-
-    # Lazy import: psychopy is heavy and may not be installed on dev machines.
-    from psychopy.sound import Sound
 
     return Sound(str(path))
 

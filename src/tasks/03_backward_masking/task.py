@@ -343,27 +343,17 @@ def _build_psychopy_io(
         lineColorSpace="rgb255",
     )
 
-    # Pre-load face stims
+    # Pre-load face stims. The KDEF images are committed to the repo so we
+    # always use the real faces — including in demo mode where the RA wants
+    # to see exactly what the participant would see.
     face_stims: dict[str, object] = {}
-    if demo:
-        placeholder = visual.Rect(
+    for fid in face_ids:
+        face_stims[fid] = visual.ImageStim(
             win,
-            width=face_size_px / 1080,
-            height=face_size_px / 1080,
+            image=str(faces_dir / f"{fid}.png"),
+            size=(face_size_px / 1080, face_size_px / 1080),
             units="height",
-            fillColor=(80, 80, 80),
-            colorSpace="rgb255",
         )
-        for fid in face_ids:
-            face_stims[fid] = placeholder
-    else:
-        for fid in face_ids:
-            face_stims[fid] = visual.ImageStim(
-                win,
-                image=str(faces_dir / f"{fid}.png"),
-                size=(face_size_px / 1080, face_size_px / 1080),
-                units="height",
-            )
 
     mask_stims: dict[str, object] = {}
     for mid in mask_ids:
@@ -653,11 +643,10 @@ def run(
         config = dict(config)
 
     if demo:
+        # Shorten only the main block. Practice runs at full count so the RA
+        # can still exercise the familiarization flow end-to-end.
         config["total_trials"] = 20
         config["catch_trial_proportion"] = 3 / 20  # exactly 3 catch out of 20
-        config["practice_trials"] = 5
-        config["practice_face_trials"] = 4
-        config["practice_catch_trials"] = 1
 
     if output_dir is None:
         output_dir = DATA_DIR

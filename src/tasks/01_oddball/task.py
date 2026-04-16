@@ -126,6 +126,32 @@ def build_trial_sequence(
     return seq
 
 
+def build_practice_sequence(
+    gap_options: tuple[int, ...] = (1, 2, 3, 4),
+    rng: random.Random | None = None,
+) -> list[str]:
+    """Build the practice trial order: one deviant per gap, gaps shuffled.
+
+    For each ``n`` in a random permutation of *gap_options*, emits ``n``
+    standards followed by a single deviant. With the default gaps
+    ``(1, 2, 3, 4)`` the result is always 10 standards + 4 deviants = 14
+    trials; the position of the deviants varies trial-to-trial.
+
+    Unlike :func:`build_trial_sequence` (used for the main block's stratified
+    placement), this structure guarantees each deviant is preceded by a
+    distinct, small number of standards — enough to demonstrate the target
+    without boring the RA during repeated practice attempts.
+    """
+    rng = rng or random.Random()
+    gaps = list(gap_options)
+    rng.shuffle(gaps)
+    seq: list[str] = []
+    for gap in gaps:
+        seq.extend([STANDARD] * gap)
+        seq.append(DEVIANT)
+    return seq
+
+
 def compute_practice_metrics(records: list[TrialRecord]) -> tuple[float, float]:
     """Return ``(hit_rate, false_alarm_rate)`` over a list of practice trials."""
     deviants = [r for r in records if r.tone_type == DEVIANT]
@@ -163,6 +189,15 @@ class TaskIO:
     show_screen: Callable[[str, str | None], None]
     """Show *text*. If *wait_key* is given, block until that key is pressed."""
 
+    show_fixation: Callable[[], None]
+    """Draw a fixation cross on a black background and flip.
+
+    Called at the start of practice / main blocks so the participant has a
+    stable fixation point to look at rather than lingering instructions text.
+    Nothing else redraws the display during a block, so the fixation stays
+    visible through every tone and ISI.
+    """
+
     check_escape: Callable[[], None]
     """Raise :class:`EscapePressedError` if Escape was pressed since last check."""
 
@@ -187,6 +222,7 @@ def _build_psychopy_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
     from tasks.common.display import (  # noqa: PLC0415
         EscapePressedError,
         create_window,
+        draw_fixation,
     )
     from tasks.common.display import (
         check_escape as display_check_escape,
@@ -194,6 +230,12 @@ def _build_psychopy_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
     from tasks.common.instructions import show_instructions  # noqa: PLC0415
 
     win = create_window(fullscreen=not demo)
+    # Force focus so keyboard events reach this window when the Tk launcher
+    # is still alive in the same process.
+    try:
+        win.winHandle.activate()
+    except Exception:  # noqa: BLE001
+        pass
     sounds = {
         STANDARD: load_tone(STANDARD_TONE_PATH),
         DEVIANT: load_tone(DEVIANT_TONE_PATH),
@@ -202,19 +244,44 @@ def _build_psychopy_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
     def play_tone(tone_type: str) -> float:
         # Stamp local_clock as close to the play() call as we can. PsychoPy's
         # Sound.play() returns immediately after handing the buffer to the
-        # backend; with a low-latency PTB/ASIO backend the actual onset is
-        # within ~1-2 ms. Document this caveat in the analysis pipeline.
+        # backend.
+        #
+        # PsychoPy's pygame Sound backend has a broken `isPlaying` guard:
+        # it sets `_isPlaying = True` on first play but never resets it when
+        # the sound finishes, so every subsequent play() silently no-ops.
+        # Calling stop() first (or forcing `_isPlaying = False`) is the
+        # documented workaround — we go with the internal flag because
+        # stop() has its own guard that short-circuits when `_isPlaying` is
+        # unreliable on top of a finished channel.
         sound = sounds[tone_type]
+        try:
+            sound._isPlaying = False
+        except AttributeError:
+            pass
         sound.play()
         return local_clock()
 
     def wait_for_response(onset_lsl_time: float, window_s: float) -> float | None:
-        keys = event.waitKeys(maxWait=window_s, keyList=["space", "escape"])
-        if not keys:
-            return None
-        if "escape" in keys:
-            raise EscapePressedError
-        return (local_clock() - onset_lsl_time) * 1000.0
+        # Poll with explicit pyglet event dispatch. Relying on
+        # ``event.waitKeys(maxWait=...)`` can hang on macOS when Tk is still
+        # alive in the same process because pyglet's event loop isn't being
+        # pumped. Dispatching events from the window each tick guarantees
+        # keystrokes get into the psychopy event queue and the timeout
+        # actually fires.
+        deadline = local_clock() + window_s
+        event.clearEvents(eventType="keyboard")
+        while local_clock() < deadline:
+            try:
+                win.winHandle.dispatch_events()
+            except Exception:  # noqa: BLE001
+                pass
+            keys = event.getKeys(keyList=["space", "escape"])
+            if keys:
+                if "escape" in keys:
+                    raise EscapePressedError
+                return (local_clock() - onset_lsl_time) * 1000.0
+            core.wait(0.005, hogCPUperiod=0.005)
+        return None
 
     def show_screen(text: str, wait_key: str | None) -> None:
         if wait_key:
@@ -225,6 +292,10 @@ def _build_psychopy_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
             )
             stim.draw()
             win.flip()
+
+    def show_fixation() -> None:
+        draw_fixation(win)
+        win.flip()
 
     def check_escape() -> None:
         display_check_escape(win)
@@ -239,6 +310,7 @@ def _build_psychopy_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
         play_tone=play_tone,
         wait_for_response=wait_for_response,
         show_screen=show_screen,
+        show_fixation=show_fixation,
         check_escape=check_escape,
         wait=wait,
     )
@@ -268,24 +340,34 @@ def _run_block(
     in the returned records but not emitted as markers, so the marker stream
     cleanly distinguishes practice-phase events from main-task events.
     """
-    deviant_probability = n_deviants / n_trials if n_trials else 0.0
-    sequence = build_trial_sequence(
-        n_total=n_trials,
-        deviant_probability=deviant_probability,
-        max_consecutive_standards=config["max_consecutive_standards"],
-        rng=rng,
-    )
-
-    isi_min_s = config["isi_min_ms"] / 1000.0
-    isi_max_s = config["isi_max_ms"] / 1000.0
-    response_window_s = config["response_window_ms"] / 1000.0
-
+    # Practice has its own optional timing overrides so the block can run
+    # quickly (~15 s) without affecting the main ERP CORE timing. Missing
+    # keys fall back to the main values. Practice also uses a distinct
+    # sequence (one deviant per gap size in {1,2,3,4}, shuffled) rather than
+    # the stratified placement used for the main block.
     if phase == "practice":
+        sequence = build_practice_sequence(rng=rng)
+        isi_min_s = config.get("practice_isi_min_ms", config["isi_min_ms"]) / 1000.0
+        isi_max_s = config.get("practice_isi_max_ms", config["isi_max_ms"]) / 1000.0
+        response_window_s = (
+            config.get("practice_response_window_ms", config["response_window_ms"])
+            / 1000.0
+        )
         tone_marker = {
             STANDARD: "task01_practice_tone_standard",
             DEVIANT: "task01_practice_tone_deviant",
         }
     else:
+        deviant_probability = n_deviants / n_trials if n_trials else 0.0
+        sequence = build_trial_sequence(
+            n_total=n_trials,
+            deviant_probability=deviant_probability,
+            max_consecutive_standards=config["max_consecutive_standards"],
+            rng=rng,
+        )
+        isi_min_s = config["isi_min_ms"] / 1000.0
+        isi_max_s = config["isi_max_ms"] / 1000.0
+        response_window_s = config["response_window_ms"] / 1000.0
         tone_marker = {
             STANDARD: "task01_tone_standard",
             DEVIANT: "task01_tone_deviant",
@@ -434,6 +516,11 @@ def run(
     else:
         config = dict(config)
 
+    # Demo mode shortens only the MAIN block. Practice keeps its full fixed
+    # 14-trial structure (built by build_practice_sequence) so the RA can
+    # actually exercise the pass/fail logic in demo runs. Demo also skips
+    # the practice-accuracy gate (`passed = demo or …`) so the RA never
+    # gets stuck retrying.
     if demo:
         config["total_trials"] = 20
 
@@ -467,14 +554,21 @@ def run(
             send_marker(outlet, "task01_practice_start")
             send_marker(outlet, f"task01_practice_attempt_{practice_attempt}")
 
+            # Clear the instruction/feedback text and put up a stable
+            # fixation cross for the duration of this practice block.
+            io.show_fixation()
+
+            # `_run_block` ignores n_trials/n_deviants in the practice phase
+            # and builds a fixed 14-trial sequence via build_practice_sequence.
+            # Pass zeros to make that explicit.
             practice_records = _run_block(
                 outlet=outlet,
                 io=io,
                 config=config,
                 phase="practice",
                 practice_attempt=practice_attempt,
-                n_trials=config["practice_trials"],
-                n_deviants=config["practice_deviants"],
+                n_trials=0,
+                n_deviants=0,
                 rng=rng,
                 trial_offset=len(all_records),
             )
@@ -483,7 +577,7 @@ def run(
             send_marker(outlet, "task01_practice_end")
 
             hit_rate, fa_rate = compute_practice_metrics(practice_records)
-            n_dev = config["practice_deviants"]
+            n_dev = sum(1 for r in practice_records if r.tone_type == DEVIANT)
             n_hits = sum(1 for r in practice_records if r.response_type == "hit")
 
             passed = demo or (
@@ -512,6 +606,11 @@ def run(
             )
 
         # ----- Main task -----
+        # Clear the "main task starting" message and put up the fixation
+        # cross. It stays on screen throughout the ~5 min block since the
+        # trial loop never redraws.
+        io.show_fixation()
+
         n_main = config["total_trials"]
         n_main_deviants = round(n_main * config["deviant_probability"])
         main_records = _run_block(

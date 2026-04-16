@@ -84,11 +84,13 @@ class TaskIO:
     show_text_and_wait: Callable[[str, str], None]
     """Show *text* on a gray screen; block until *wait_key* is pressed."""
 
-    iconify: Callable[[], None]
-    """Minimize the Pygame window so the Vayl overlay is visible."""
+    show_solid: Callable[[tuple[int, int, int]], None]
+    """Fill the entire Pygame surface with *rgb* and flip.
 
-    restore: Callable[[], None]
-    """Re-present the Pygame window after the Vayl overlay fades out."""
+    Used as the background for Vayl's overlay (white while ramping, black
+    after). Vayl renders on top of OS windows so our own surface colour
+    shows through wherever the checkerboard overlay is not.
+    """
 
     check_escape: Callable[[], None]
     """Raise :class:`EscapePressedError` if Escape was pressed."""
@@ -97,18 +99,24 @@ class TaskIO:
     """Sleep for *seconds* (used by the demo fallback when Vayl is down)."""
 
 
-def _build_pygame_io() -> tuple[TaskIO, Callable[[], None]]:
+def _build_pygame_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
     """Construct a Pygame-backed ``TaskIO`` for the participant-facing screens.
 
     We intentionally only use Pygame (not PsychoPy) for the instruction and
-    completion screens so there is exactly one display-framework stack
+    background screens so there is exactly one display-framework stack
     alongside Vayl -- mixing Pygame, PsychoPy, and Vayl's overlay would be
-    asking for window-focus bugs.
+    asking for window-focus bugs. In demo mode we use a windowed surface so
+    the RA can verify the flow without taking over the display; a live
+    session goes fullscreen.
     """
     import pygame  # noqa: PLC0415
 
     pygame.init()
-    screen = pygame.display.set_mode((1280, 720))
+    flags = 0 if demo else pygame.FULLSCREEN
+    # 1280x720 is only used when windowed; fullscreen takes the display's
+    # native resolution.
+    screen = pygame.display.set_mode((1280, 720), flags)
+    surf_w, surf_h = screen.get_size()
     pygame.display.set_caption("IACS Task 05 -- SSVEP Frequency Ramp")
     font = pygame.font.SysFont(None, 48)
     clock = pygame.time.Clock()
@@ -117,10 +125,10 @@ def _build_pygame_io() -> tuple[TaskIO, Callable[[], None]]:
         waiting = True
         while waiting:
             screen.fill((40, 40, 40))
-            y = 720 // 2 - 200
+            y = surf_h // 2 - 200
             for line in text.split("\n"):
                 surf = font.render(line, True, (230, 230, 230))
-                rect = surf.get_rect(center=(1280 // 2, y))
+                rect = surf.get_rect(center=(surf_w // 2, y))
                 screen.blit(surf, rect)
                 y += 56
             pygame.display.flip()
@@ -136,13 +144,12 @@ def _build_pygame_io() -> tuple[TaskIO, Callable[[], None]]:
                         raise EscapePressedError
             clock.tick(30)
 
-    def iconify() -> None:
-        pygame.display.iconify()
-
-    def restore() -> None:
-        # Re-setting the display mode brings the window back to the front
-        # on most platforms after an iconify.
-        pygame.display.set_mode((1280, 720))
+    def show_solid(rgb: tuple[int, int, int]) -> None:
+        screen.fill(rgb)
+        pygame.display.flip()
+        # Pump the event queue once so the window redraws and the OS
+        # doesn't mark us unresponsive during the long ramp.
+        pygame.event.pump()
 
     def check_escape() -> None:
         for ev in pygame.event.get():
@@ -159,8 +166,7 @@ def _build_pygame_io() -> tuple[TaskIO, Callable[[], None]]:
 
     io = TaskIO(
         show_text_and_wait=show_text_and_wait,
-        iconify=iconify,
-        restore=restore,
+        show_solid=show_solid,
         check_escape=check_escape,
         wait=wait,
     )
@@ -252,8 +258,8 @@ def run(
     else:
         config = dict(config)
 
-    if demo:
-        config["ramp_duration_s"] = 10
+    # Demo no longer shortens the ramp — RAs want to verify the full 5 min
+    # (300 s by default, sourced from config) to match the real protocol.
 
     if output_dir is None:
         output_dir = DATA_DIR
@@ -265,7 +271,7 @@ def run(
 
     cleanup: Callable[[], None] = lambda: None  # noqa: E731
     if io is None:
-        io, cleanup = _build_pygame_io()
+        io, cleanup = _build_pygame_io(demo=demo)
 
     if bridge is None:
         bridge = VaylBridge(
@@ -314,9 +320,11 @@ def run(
                 }
             )
 
-        # Minimize the Pygame window so the Vayl overlay (rendered on the
-        # GPU above everything) is fully visible to the participant.
-        io.iconify()
+        # Paint the background white so it shows through wherever Vayl's
+        # overlay isn't rendered. The Vayl app draws its checkerboard on
+        # top of OS windows, so our own white fill serves as the framed
+        # background for the stimulation.
+        io.show_solid((255, 255, 255))
 
         # ----- Ramp -----
         start_hz = float(config["carrier_start_hz"])
@@ -360,9 +368,12 @@ def run(
 
         send_marker(outlet, "task05_overlay_off")
 
-        # ----- Restore Pygame window and show completion -----
-        io.restore()
-        io.show_text_and_wait(COMPLETION_TEXT, "space")
+        # ----- Return to black background, no completion prompt -----
+        # The launcher takes over after run() returns; no need to wait for
+        # a spacebar press between tasks. A brief black screen gives the
+        # retina a second to settle after the Vayl overlay fades.
+        io.show_solid((0, 0, 0))
+        io.wait(1.5)
 
         log_path = _save_session_log(entries, participant_id, output_dir)
 

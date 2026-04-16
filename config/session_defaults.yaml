@@ -16,9 +16,14 @@ task01_oddball:
   response_window_ms: 1000
   volume: 1.0
   max_consecutive_standards: 4  # min feasible for 200/50 split = ceil(200/51) = 4
-  # Practice gate (run before main task; repeats until participant passes)
-  practice_trials: 10
-  practice_deviants: 2
+  # Practice gate (run before main task; repeats until participant passes).
+  # Structure is fixed in code: one deviant per gap size in {1,2,3,4}, gaps
+  # shuffled per attempt. That's always 4 deviants + 10 standards = 14
+  # trials, ~15 s at the shorter practice-only timings below. The shorter
+  # response window / ISI don't affect the main ERP CORE timings above.
+  practice_response_window_ms: 800
+  practice_isi_min_ms: 200
+  practice_isi_max_ms: 400
   practice_hit_threshold: 0.75
   practice_fa_ceiling: 0.50
 
@@ -55,7 +60,10 @@ task03_backward_masking:
   soa_max_ms: 500
   soa_start_ms: 100
   # Stimulus handling
-  face_size_px: 256
+  # 768 px gives a face about a third of a 1080p screen's height, i.e. large
+  # and easily visible at normal viewing distance. The underlying KDEF crops
+  # are 562 px so this upsamples ~1.4x — PsychoPy interpolates, no pixelation.
+  face_size_px: 768
   n_mondrian_masks: 100
   min_face_identities: 10
 

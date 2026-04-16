@@ -40,18 +40,14 @@ class MockTaskIO:
 
     def __init__(self) -> None:
         self.shown_texts: list[str] = []
-        self.iconify_calls = 0
-        self.restore_calls = 0
+        self.shown_solids: list[tuple[int, int, int]] = []
         self.waits: list[float] = []
 
     def show_text_and_wait(self, text: str, wait_key: str) -> None:
         self.shown_texts.append(text)
 
-    def iconify(self) -> None:
-        self.iconify_calls += 1
-
-    def restore(self) -> None:
-        self.restore_calls += 1
+    def show_solid(self, rgb: tuple[int, int, int]) -> None:
+        self.shown_solids.append(rgb)
 
     def check_escape(self) -> None:
         return None
@@ -214,11 +210,13 @@ class TestFullRunWithWorkingBridge:
         assert len(mock_bridge.wait_for_ramp_calls) == 1
         assert mock_bridge.turn_off_calls == 1
 
-        # Pygame window lifecycle
-        assert mock_io.iconify_calls == 1
-        assert mock_io.restore_calls == 1
-        # Two shown screens: instructions + completion
-        assert len(mock_io.shown_texts) == 2
+        # Background fills: white during Vayl, black after it fades out.
+        assert (255, 255, 255) in mock_io.shown_solids
+        assert (0, 0, 0) in mock_io.shown_solids
+        # Only the instructions screen prompts the participant — the
+        # completion screen was removed so tasks flow without extra space
+        # presses.
+        assert len(mock_io.shown_texts) == 1
 
         # Session log written
         assert log_path.exists()
@@ -316,9 +314,10 @@ class TestVaylConnectivityFailure:
         assert failing_bridge.wait_for_ramp_calls == []
         assert failing_bridge.turn_off_calls == 0
 
-        # Sleep fallback: io.wait was called with the ramp duration
-        # (demo mode overrides ramp_duration_s to 10)
-        assert 10 in mock_io.waits or 10.0 in mock_io.waits
+        # Sleep fallback: io.wait was called with the configured ramp
+        # duration (demo no longer shortens it — the value comes straight
+        # from _small_config's ramp_duration_s).
+        assert 1.0 in mock_io.waits
 
         # Session log records the demo fallback
         with open(log_path, newline="") as fh:

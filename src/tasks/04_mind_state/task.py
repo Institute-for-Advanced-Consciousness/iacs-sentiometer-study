@@ -125,8 +125,15 @@ def _build_pygame_io(demo: bool, gong_path: Path) -> tuple[TaskIO, Callable[[], 
         log.warning("Could not load gong at %s; meditation will be silent", gong_path)
 
     space_held_state = {"held": False, "pressed_this_frame": False, "released_this_frame": False}
+    escape_state = {"pressed": False}
 
     def _poll_events() -> None:
+        # Single place where the pygame event queue is drained during the
+        # game loop. Space KEYDOWN/KEYUP update the input state; ESC sets a
+        # flag that `check_escape` will raise on next check. It is critical
+        # that no other helper calls `pygame.event.get()` between frames —
+        # that used to swallow space keypresses before the jump logic
+        # could see them.
         space_held_state["pressed_this_frame"] = False
         space_held_state["released_this_frame"] = False
         for ev in pygame.event.get():
@@ -137,9 +144,7 @@ def _build_pygame_io(demo: bool, gong_path: Path) -> tuple[TaskIO, Callable[[], 
                 space_held_state["held"] = False
                 space_held_state["released_this_frame"] = True
             elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
-                from tasks.common.display import EscapePressedError  # noqa: PLC0415
-
-                raise EscapePressedError
+                escape_state["pressed"] = True
 
     def show_text_and_wait(text: str, wait_key: str) -> None:
         waiting = True
@@ -281,11 +286,13 @@ def _build_pygame_io(demo: bool, gong_path: Path) -> tuple[TaskIO, Callable[[], 
         pygame.display.flip()
 
     def check_escape() -> None:
-        for ev in pygame.event.get():
-            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
-                from tasks.common.display import EscapePressedError  # noqa: PLC0415
+        # Do NOT call `pygame.event.get()` here — it would drain the queue
+        # before `_poll_events` sees the space keydowns. Instead raise if
+        # `_poll_events` already saw ESC this frame.
+        if escape_state["pressed"]:
+            from tasks.common.display import EscapePressedError  # noqa: PLC0415
 
-                raise EscapePressedError
+            raise EscapePressedError
 
     def wait(seconds: float) -> None:
         pygame.time.wait(int(seconds * 1000))

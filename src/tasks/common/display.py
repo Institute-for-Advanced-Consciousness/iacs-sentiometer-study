@@ -35,13 +35,34 @@ def create_window(fullscreen: bool = True) -> Window:
     Window
         A PsychoPy ``visual.Window`` ready for drawing.
     """
-    win = visual.Window(
-        fullscr=fullscreen,
-        color=(-1, -1, -1),  # black
-        units="height",
-        waitBlanking=True,
-        allowGUI=not fullscreen,
-    )
+    # pyglet 1.5.31's Cocoa bridge corrupts ObjC class dispatch after the
+    # first Window is closed, so subsequent Window constructors trip
+    # AttributeErrors on `ObjCInstance` classes (the exact method varies —
+    # we've seen `initWithAttributes_`, `initWithContentRect_styleMask_...`,
+    # etc.). The failed attempt itself resets the state, so retrying once
+    # succeeds. This is load-bearing for a multi-task session.
+    def _make_window() -> Window:
+        return visual.Window(
+            fullscr=fullscreen,
+            color=(-1, -1, -1),  # black
+            units="height",
+            waitBlanking=True,
+            allowGUI=not fullscreen,
+        )
+
+    def _is_pyglet_cocoa_glitch(exc: AttributeError) -> bool:
+        return "ObjCInstance" in str(exc)
+
+    for attempt in (1, 2, 3):
+        try:
+            win = _make_window()
+            break
+        except AttributeError as exc:
+            if not _is_pyglet_cocoa_glitch(exc) or attempt == 3:
+                raise
+            log.info(
+                "pyglet Cocoa bridge glitched (attempt %d); retrying", attempt
+            )
     log.info(
         "PsychoPy window created: %s, size=%s, refresh=%.1f Hz",
         "fullscreen" if fullscreen else "windowed",

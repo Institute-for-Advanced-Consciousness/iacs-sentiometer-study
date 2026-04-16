@@ -88,6 +88,9 @@ class MockTaskIO:
     def show_screen(self, text: str, wait_key: str | None) -> None:
         self.shown_screens.append(text)
 
+    def show_fixation(self) -> None:
+        self.shown_screens.append("<fixation>")
+
     def check_escape(self) -> None:
         return None
 
@@ -258,7 +261,10 @@ class TestSimulatedRun:
         self, captured_marker_outlet, small_config: dict, tmp_path: Path
     ):
         outlet, inlet = captured_marker_outlet
-        mock_io = MockTaskIO(practice_trials=small_config["practice_trials"])
+        # Practice is a fixed 14-trial structure (1 deviant per gap in 1..4);
+        # MockTaskIO needs that exact number to know when to flip from
+        # "miss everything" to "hit every deviant".
+        mock_io = MockTaskIO(practice_trials=14)
 
         log_path = oddball_task.run(
             outlet=outlet,
@@ -329,9 +335,14 @@ class TestSimulatedRun:
         cfg["isi_min_ms"] = 0
         cfg["isi_max_ms"] = 0
         cfg["response_window_ms"] = 50
-        # MockTaskIO with practice_trials matching the demo config — attempt 1 will
-        # always miss but demo mode forces a pass anyway.
-        mock_io = MockTaskIO(practice_trials=cfg["practice_trials"])
+        # Demo no longer shortens the main block internally, so the test
+        # trims it explicitly to keep the suite fast.
+        cfg["total_trials"] = 12
+        cfg["max_consecutive_standards"] = 3
+        # Practice is a fixed 14-trial structure regardless of config. Demo
+        # mode forces the gate to pass even though MockTaskIO misses everything
+        # on attempt 1.
+        mock_io = MockTaskIO(practice_trials=14)
 
         oddball_task.run(
             outlet=outlet,

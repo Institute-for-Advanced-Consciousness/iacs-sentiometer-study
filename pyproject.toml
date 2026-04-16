@@ -3,7 +3,7 @@ name = "iacs-sentiometer-study"
 version = "0.1.0"
 description = "IACS Sentiometer validation study: LSL streaming, experimental tasks, and data collection"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.12"
 license = { text = "MIT" }
 authors = [
     { name = "Nicco Reggente", email = "nicco@iacscience.org" },
@@ -30,6 +30,20 @@ tasks = [
     "numpy>=1.26",
     "pandas>=2.2",
     "scipy>=1.12",
+    # PsychoPy's metadata allows pyobjc 7.3, which predates Apple Silicon / Python 3.11
+    # wheels and fails to build from source against modern clang. Force a modern pyobjc
+    # so uv installs prebuilt wheels.
+    'pyobjc>=10; sys_platform == "darwin"',
+]
+
+# PsychoPy pins pyglet==1.5.27 on macOS, but that version's Cocoa bridge
+# crashes on Apple Silicon with modern pyobjc (NSSingleObjectArrayI has no
+# attribute initWithAttributes_). 1.5.31 patched the bridge. We override
+# psychopy's pin on darwin only (Windows stays on pyglet==1.4.11 per
+# psychopy's metadata).
+[tool.uv]
+override-dependencies = [
+    'pyglet>=1.5.31,<2; sys_platform == "darwin"',
 ]
 
 [project.scripts]
@@ -41,6 +55,22 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sentiometer", "src/tasks"]
+
+# pyobjc 7.3 (pulled in by psychopy) has a setup.py that imports pkg_resources,
+# which was removed from setuptools 81+. Pin setuptools<81 in the build env for
+# every affected package so their setup scripts can still import pkg_resources.
+[tool.uv.extra-build-dependencies]
+pyobjc = ["setuptools<81"]
+pyobjc-core = ["setuptools<81"]
+pyobjc-framework-cocoa = ["setuptools<81"]
+pyobjc-framework-coretext = ["setuptools<81"]
+pyobjc-framework-security = ["setuptools<81"]
+pyobjc-framework-applicationservices = ["setuptools<81"]
+pyobjc-framework-coremedia = ["setuptools<81"]
+pyobjc-framework-coreaudio = ["setuptools<81"]
+pyobjc-framework-fileprovider = ["setuptools<81"]
+pyobjc-framework-libdispatch = ["setuptools<81"]
+pyobjc-framework-quartz = ["setuptools<81"]
 
 [tool.ruff]
 line-length = 100

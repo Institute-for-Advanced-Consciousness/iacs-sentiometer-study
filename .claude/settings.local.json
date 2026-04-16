@@ -10,7 +10,27 @@
       "Bash(PYTHONIOENCODING=utf-8 uv run:*)",
       "Bash(git remote:*)",
       "Bash(git branch:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(uv python *)",
+      "Bash(xcrun -sdk macosx --show-sdk-path)",
+      "Bash(xcode-select -p)",
+      "Bash(xcode-select *)",
+      "Bash(CFLAGS=\"-Wno-error=unused-but-set-variable\" uv sync --extra tasks)",
+      "Bash(CFLAGS=\"-Wno-error=unused-but-set-variable -Wno-error=deprecated-declarations -Wno-error=incompatible-function-pointer-types -Wno-error=implicit-function-declaration\" uv sync --extra tasks)",
+      "Bash(CFLAGS=\"-Wno-error\" uv sync --extra tasks)",
+      "Bash(uv pip *)",
+      "Bash(.venv/bin/python -c \"import psychopy; import pygame; import numpy; print\\('psychopy', psychopy.__version__\\); print\\('pygame', pygame.version.ver\\); print\\('numpy', numpy.__version__\\)\")",
+      "Bash(python3 -c \"import json, sys; d = json.load\\(sys.stdin\\); print\\(json.dumps\\({'status': d['status'], 'tasks': {k: {kk: vv for kk, vv in v.items\\(\\) if kk != 'config_snapshot'} for k, v in d['tasks'].items\\(\\)}}, indent=2\\)\\)\")",
+      "Bash(.venv/bin/python *)",
+      "Bash(python3 -c \"import json, sys; d = json.load\\(sys.stdin\\); print\\(json.dumps\\({'status': d['status'], 'tasks': {k: {kk: vv for kk, vv in v.items\\(\\)} for k, v in d['tasks'].items\\(\\)}}, indent=2\\)\\)\")",
+      "Bash(python3 -c \"import json, sys; d = json.load\\(sys.stdin\\); print\\('status:', d['status']\\); [print\\(f'{k}: {v[\\\\\"status\\\\\"]}' + \\(f' — {v.get\\(\\\\\"error\\\\\",\\\\\"\\\\\"\\)}' if v.get\\('status'\\)=='failed' else ''\\)\\) for k, v in d['tasks'].items\\(\\)]\")",
+      "Bash(gh repo *)",
+      "Bash(gh api *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(x['type'], x['path']\\) for x in d]\")",
+      "WebFetch(domain:github.com)",
+      "Bash(python3 -c ' *)",
+      "Bash(wait)",
+      "Bash(chmod +x /Users/iacs/Desktop/GITHUB/iacs-sentiometer-study/launch.command)"
     ]
   }
 }

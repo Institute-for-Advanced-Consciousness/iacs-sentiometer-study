@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from psychopy import event, visual
+from psychopy import core, event, visual
 
 if TYPE_CHECKING:
     from psychopy.visual import Window
@@ -42,7 +42,18 @@ def show_instructions(win: Window, text: str, wait_key: str = "space") -> None:
     )
     stim.draw()
     win.flip()
-    event.waitKeys(keyList=[wait_key])
+    # Poll keys with explicit event pumping. `event.waitKeys` alone can hang
+    # on macOS when Tk is alive in the same process because pyglet's event
+    # loop isn't being driven.
+    event.clearEvents(eventType="keyboard")
+    while True:
+        try:
+            win.winHandle.dispatch_events()
+        except Exception:  # noqa: BLE001
+            pass
+        if event.getKeys(keyList=[wait_key]):
+            break
+        core.wait(0.01, hogCPUperiod=0.01)
 
 
 def show_countdown(win: Window, seconds: int) -> None:

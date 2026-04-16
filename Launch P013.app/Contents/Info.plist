@@ -22,5 +22,18 @@
     <string>12.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <!-- TCC usage descriptions so Finder-launched runs trigger the
+         "Allow this app to access your Desktop/Documents/Downloads" prompt
+         on first launch. Without these, macOS silently refuses access to
+         protected folders and Python blows up with EPERM trying to read
+         .venv/pyvenv.cfg. -->
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Launch P013 reads the study repo, venv, and data from the folder it lives in.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Launch P013 reads the study repo, venv, and data from the folder it lives in.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Launch P013 reads the study repo, venv, and data from the folder it lives in.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Launch P013 reads the study repo, venv, and data from the folder it lives in.</string>
 </dict>
 </plist>

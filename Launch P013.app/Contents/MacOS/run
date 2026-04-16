@@ -1,46 +1,105 @@
 #!/bin/bash
-# Launcher executable for the Launch P013.app bundle.
+# Launcher executable for the Launch P013.app bundle. Every step is logged
+# to data/gui_launcher.log so we can see where it died if Finder shows the
+# app closing immediately.
 #
-# When Finder double-clicks the .app, macOS runs this file with no working
-# directory guarantee, so we resolve the repo root from the bundle's own
-# location: this file lives at
-#   <repo>/Launch P013.app/Contents/MacOS/run
-# so three levels up gets us back to the repo.
+# When Finder double-clicks the .app, macOS runs this file with CWD=/ and
+# PATH stripped down; we resolve the repo root from the bundle's own
+# location and prepend the usual `uv` install directories to PATH.
 
 set -u
 
-BUNDLE_EXEC_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$BUNDLE_EXEC_DIR/../../.." && pwd)"
-
-cd "$REPO_ROOT" || {
-    /usr/bin/osascript -e "display alert \"P013 launcher\" message \"Could not cd to repo root ($REPO_ROOT).\""
-    exit 1
+log_line() {
+    # Safe even if LOG_FILE isn't writable yet — falls back to /tmp.
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    if [ -n "${LOG_FILE:-}" ] && printf '' >>"$LOG_FILE" 2>/dev/null; then
+        echo "$msg" >>"$LOG_FILE"
+    else
+        echo "$msg" >>/tmp/p013_launcher.log 2>/dev/null || true
+    fi
 }
 
-# Make sure `uv` is on PATH even when Finder launches us with a minimal env.
-# Users typically install uv via Homebrew or the official curl installer,
-# which drops binaries in one of these locations.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-
-if ! command -v uv >/dev/null 2>&1; then
-    /usr/bin/osascript -e "display alert \"uv not found\" message \"The 'uv' command is not on PATH. Install from https://docs.astral.sh/uv/ and try again.\""
-    exit 1
+BUNDLE_EXEC_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+if [ -z "$BUNDLE_EXEC_DIR" ]; then
+    /usr/bin/osascript -e "display alert \"Bundle path resolution failed\" message \"dirname \\\"$0\\\" could not be resolved.\""
+    exit 2
 fi
 
-# Run the GUI. Log stdout+stderr so the RA has something to check if the
-# window never appears.
+REPO_ROOT="$(cd "$BUNDLE_EXEC_DIR/../../.." 2>/dev/null && pwd)"
+if [ -z "$REPO_ROOT" ] || [ ! -d "$REPO_ROOT" ]; then
+    /usr/bin/osascript -e "display alert \"Repo root not found\" message \"Expected at $BUNDLE_EXEC_DIR/../../..\""
+    exit 2
+fi
+
 LOG_DIR="$REPO_ROOT/data"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/gui_launcher.log"
 
-uv run python -m tasks.gui_launcher >>"$LOG_FILE" 2>&1
+log_line "------------------------------------------------------------"
+log_line "Launch P013.app starting"
+log_line "bundle exec dir: $BUNDLE_EXEC_DIR"
+log_line "repo root:       $REPO_ROOT"
+log_line "whoami:          $(whoami)"
+log_line "shell:           $0  (bash=$BASH_VERSION)"
+log_line "PATH (before):   $PATH"
+
+cd "$REPO_ROOT" || {
+    /usr/bin/osascript -e "display alert \"cd to repo root failed\" message \"Could not cd to $REPO_ROOT.\""
+    exit 2
+}
+
+# Finder launches don't inherit a login shell's PATH, so uv / python aren't
+# visible by default. Prepend the usual install locations.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+log_line "PATH (after):    $PATH"
+
+# Prefer the pre-built venv over `uv run`. `uv run` was observed to exit
+# immediately with code 1 and "Current directory does not exist" when
+# launched from a Finder-invoked .app (works fine from a terminal). Going
+# straight to .venv/bin/python sidesteps whatever subprocess uv is
+# spawning that's allergic to the Finder environment. If the venv is
+# missing we fall back to `uv sync` once, then python directly.
+VENV_PY="$REPO_ROOT/.venv/bin/python"
+
+if [ ! -x "$VENV_PY" ]; then
+    log_line ".venv/bin/python missing — trying uv sync --extra tasks --extra dev"
+    UV_BIN="$(command -v uv 2>/dev/null || true)"
+    if [ -z "$UV_BIN" ]; then
+        /usr/bin/osascript -e "display alert \"First-run setup\" message \"The .venv hasn't been built yet and 'uv' is not on PATH. Run 'uv sync --extra tasks' from a terminal in $REPO_ROOT, then relaunch the app.\""
+        exit 2
+    fi
+    "$UV_BIN" sync --extra tasks --extra dev >>"$LOG_FILE" 2>&1 || {
+        /usr/bin/osascript -e "display alert \"uv sync failed\" message \"Check $LOG_FILE.\""
+        exit 2
+    }
+fi
+
+# Pre-flight probe: can we actually read a file inside the repo? If not,
+# macOS TCC has refused Desktop/Documents/Downloads access — no amount of
+# PATH hacking will fix it, so bail out early with a clear message.
+if ! cat "$REPO_ROOT/pyproject.toml" >/dev/null 2>&1; then
+    log_line "TCC refused access to $REPO_ROOT (pyproject.toml unreadable)"
+    /usr/bin/osascript -e "display alert \"macOS blocked access to the study folder\" message \"System Settings → Privacy & Security → Files and Folders → enable Desktop / Documents for 'Launch P013', then relaunch. (If you denied the prompt, run 'tccutil reset All org.iacscience.p013-launcher' in Terminal to clear the cached choice.)\""
+    exit 2
+fi
+
+log_line "running: $VENV_PY -m tasks.gui_launcher"
+PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
+    "$VENV_PY" -m tasks.gui_launcher >>"$LOG_FILE" 2>&1
 exit_code=$?
+log_line "python exited with code $exit_code"
+
+# Detect the classic TCC-on-first-launch failure and translate it from
+# "PermissionError: [Errno 1]" to something actionable.
+if [ $exit_code -ne 0 ] && grep -q "Operation not permitted" "$LOG_FILE" 2>/dev/null; then
+    /usr/bin/osascript -e "display alert \"macOS blocked access to the study folder\" message \"System Settings → Privacy & Security → Files and Folders → enable Desktop / Documents for 'Launch P013', then relaunch. (Or run 'tccutil reset All org.iacscience.p013-launcher' in Terminal to re-prompt.)\""
+    exit 2
+fi
 
 # pyglet 1.5.x on macOS can't cleanly tear down its ObjC text views, so
-# closing the GUI window often produces exit code 1 even though the session
-# itself completed fine and session_log.json was written. Only surface an
-# alert for codes that indicate a genuine crash (>= 2). Exit 0 and 1 are
-# treated as "normal close".
+# closing the GUI window routinely produces exit 1 even though the session
+# itself completed fine and session_log.json was written. Treat 0 and 1 as
+# clean close; alert only on >= 2.
 if [ $exit_code -ge 2 ]; then
     /usr/bin/osascript -e "display alert \"Launcher exited with errors\" message \"Exit code $exit_code. Check $LOG_FILE for details.\""
 fi

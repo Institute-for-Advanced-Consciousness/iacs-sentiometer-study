@@ -48,7 +48,8 @@
       "Bash(codesign --verify --verbose=2 \"Launch P013.app\")",
       "Bash(xattr -cr \"Launch P013.app\")",
       "Bash(open \"x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Files&FoldersServices\")",
-      "Bash(open \"x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders\")"
+      "Bash(open \"x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders\")",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }

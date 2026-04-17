@@ -461,6 +461,17 @@ def run(
             api_url=config["vayl_api_url"],
             lsl_stream_name=config["vayl_lsl_stream_name"],
         )
+        # Point the bridge's JSON marker events (ramp_start, ramp_stop,
+        # overlay_off with wallTimeMs) at the shared P013 marker outlet so
+        # RAs only need to tick one marker stream in LabRecorder. The
+        # bridge keeps its own VaylStim_Freq outlet because that's a
+        # 250 Hz float stream — incompatible with a string marker channel.
+        # We drop the reference to the original VaylStim outlet so the
+        # redundant stream stops being advertised.
+        if outlet is not None and getattr(bridge, "outlet", None) is not None:
+            old_vayl_outlet = bridge.outlet
+            bridge.outlet = outlet
+            del old_vayl_outlet
 
     entries: list[dict] = []
     # Declared here so the `finally` block can always restore chrome, even

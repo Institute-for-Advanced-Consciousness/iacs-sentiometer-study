@@ -351,58 +351,61 @@ def _check_vayl_streams(
     task_timestamps: np.ndarray,
     report: VerificationReport,
 ) -> None:
-    vayl_markers = next(
-        (s for s in streams if _stream_name(s) == "VaylStim"), None
-    )
     vayl_freq = next(
         (s for s in streams if _stream_name(s) == "VaylStim_Freq"), None
     )
 
-    if vayl_markers is None:
-        report.fail(
-            "Task 05 — Vayl",
-            "VaylStim stream",
-            "Vayl marker stream not recorded",
-        )
-        report.suggest(
-            "LabRecorder did not capture VaylStim — make sure the Vayl bridge is "
-            "running before LabRecorder starts, and that VaylStim is ticked in "
-            "LabRecorder's stream list"
-        )
-    else:
+    # Vayl JSON events are now routed onto P013_Task_Markers — we look for
+    # them there first, falling back to a standalone VaylStim stream for
+    # backward compatibility with older recordings.
+    vayl_markers = next(
+        (s for s in streams if _stream_name(s) == "VaylStim"), None
+    )
+    if vayl_markers is not None:
+        source = "VaylStim (separate stream)"
         messages = _marker_strings(vayl_markers)
-        events = []
-        for s in messages:
-            try:
-                events.append(json.loads(s))
-            except Exception:  # noqa: BLE001
-                events.append({"event": s})
-        event_types = [e.get("event", "?") for e in events]
-        for needed in ("ramp_start", "overlay_off"):
-            count = event_types.count(needed)
-            if count:
-                report.ok("Task 05 — Vayl", f"VaylStim:{needed}", f"{count} events")
-            else:
-                report.fail(
-                    "Task 05 — Vayl",
-                    f"VaylStim:{needed}",
-                    "event missing — ramp alignment will be impossible",
-                )
-        # Spot-check wallTimeMs presence — this is what lets us reconcile Vayl
-        # server time with LSL time to sub-ms.
-        with_wall = [e for e in events if "wallTimeMs" in e]
-        if with_wall:
+    else:
+        source = "P013_Task_Markers"
+        # Any task marker that parses as JSON with an "event" key is almost
+        # certainly a Vayl event coming via the redirected bridge.outlet.
+        messages = [m for m in task_markers if m.startswith("{") and '"event"' in m]
+
+    events = []
+    for s in messages:
+        try:
+            events.append(json.loads(s))
+        except Exception:  # noqa: BLE001
+            events.append({"event": s})
+    event_types = [e.get("event", "?") for e in events]
+    for needed in ("ramp_start", "overlay_off"):
+        count = event_types.count(needed)
+        if count:
             report.ok(
                 "Task 05 — Vayl",
-                "VaylStim:wallTimeMs",
-                f"{len(with_wall)}/{len(events)} events carry server wallTimeMs",
+                f"Vayl:{needed}",
+                f"{count} events (via {source})",
             )
         else:
-            report.warn(
+            report.fail(
                 "Task 05 — Vayl",
-                "VaylStim:wallTimeMs",
-                "no events carry wallTimeMs — Vayl bridge may be an older version",
+                f"Vayl:{needed}",
+                f"event missing from {source} — ramp alignment will be impossible",
             )
+    # Spot-check wallTimeMs presence — lets us reconcile Vayl server time
+    # with LSL time to sub-ms precision.
+    with_wall = [e for e in events if "wallTimeMs" in e]
+    if with_wall:
+        report.ok(
+            "Task 05 — Vayl",
+            "Vayl:wallTimeMs",
+            f"{len(with_wall)}/{len(events)} events carry server wallTimeMs (via {source})",
+        )
+    elif events:
+        report.warn(
+            "Task 05 — Vayl",
+            "Vayl:wallTimeMs",
+            f"no events carry wallTimeMs (via {source}) — Vayl bridge may be older",
+        )
 
     if vayl_freq is None:
         report.fail(

@@ -30,7 +30,7 @@ from typing import Any, Callable
 
 from pylsl import StreamOutlet
 
-from tasks.common.lsl_markers import create_session_outlet
+from tasks.common.lsl_markers import create_session_outlet, send_marker
 from tasks.launcher import (
     DEFAULT_DATA_ROOT,
     TASK_DISPLAY_NAMES,
@@ -88,9 +88,16 @@ STATUS_COLORS = {
 class GuiLauncher:
     """Tk-based launcher for the P013 session."""
 
-    # Placeholder participant ID used for the outlet that's created as soon as
-    # the GUI opens. Swapped for the real ID when Start is clicked.
-    OUTLET_PLACEHOLDER_ID = "LAUNCHER_READY"
+    # Stable participant ID used for the marker outlet's `source_id` from the
+    # moment the GUI opens until it closes. MUST stay constant for the whole
+    # run: LabRecorder identifies streams by (name, source_id), so if we
+    # change source_id mid-session (e.g. swap from "LAUNCHER_READY" to the
+    # real pid when Start is clicked) LabRecorder treats the new outlet as
+    # a different stream and keeps its inlet bound to the old, now-gone
+    # one — samples never reach the XDF. We emit the real participant id
+    # as a marker (`participant_id:P001`) instead of encoding it into the
+    # source_id.
+    OUTLET_STABLE_ID = "Launcher"
 
     def __init__(self) -> None:
         self.outlet: StreamOutlet | None = None
@@ -127,7 +134,7 @@ class GuiLauncher:
         # `P013_Task_Markers` as long as this GUI is up. The outlet is
         # swapped for one bearing the real participant ID when Start is
         # clicked.
-        self._open_outlet(self.OUTLET_PLACEHOLDER_ID)
+        self._open_outlet()
 
         # Kick off UI pump. Preflight runs only when the user clicks
         # "Re-check hardware" — the initial auto-run used a background thread,
@@ -558,24 +565,24 @@ class GuiLauncher:
 
     # ----- session control --------------------------------------------------
 
-    def _open_outlet(self, participant_id: str) -> None:
-        """(Re)create the P013 marker outlet and swap it into ``self.outlet``.
+    def _open_outlet(self) -> None:
+        """Create the single stable P013 marker outlet.
 
-        Safe to call repeatedly — the previous outlet is released first. Any
-        errors (e.g. LSL not available) are logged and leave ``self.outlet``
-        unset so the rest of the GUI still functions.
+        Idempotent — if the outlet already exists it's left alone. The
+        outlet is created once at GUI startup with a fixed
+        ``source_id = f'P013_{OUTLET_STABLE_ID}'`` and kept alive for the
+        entire lifetime of the process. This is critical: LabRecorder
+        identifies streams by (name, source_id), so swapping source_id
+        mid-session silently breaks its subscription and produces an
+        empty marker stream in the XDF.
         """
         if self.outlet is not None:
-            try:
-                del self.outlet
-            except Exception:  # noqa: BLE001
-                pass
-            self.outlet = None
+            return
         try:
-            self.outlet = create_session_outlet(participant_id)
+            self.outlet = create_session_outlet(self.OUTLET_STABLE_ID)
             self._log(
                 f"LSL outlet live: P013_Task_Markers "
-                f"(source_id=P013_{participant_id})"
+                f"(source_id=P013_{self.OUTLET_STABLE_ID})"
             )
         except Exception as exc:  # noqa: BLE001
             self._log(f"Failed to open LSL outlet: {exc}")
@@ -606,8 +613,12 @@ class GuiLauncher:
         self._log("=" * 40)
 
         try:
-            # Swap the placeholder outlet for one bearing the real pid.
-            self._open_outlet(pid)
+            # The outlet was created once at GUI startup with a stable
+            # source_id; do NOT recreate it here (would break LabRecorder's
+            # subscription). Emit the participant id as its own marker so
+            # the XDF still records who this session was for.
+            if self.outlet is not None:
+                send_marker(self.outlet, f"participant_id:{pid}")
             self.root.update_idletasks()
 
             # Hide the launcher for the entire session — participants never
@@ -644,10 +655,8 @@ class GuiLauncher:
                 self.root.focus_force()
             except tk.TclError:
                 pass
-            # Keep the stream discoverable after the session ends — swap
-            # back to the placeholder so the outlet stays alive for the rest
-            # of the GUI's lifetime. The real cleanup happens in _on_close.
-            self._open_outlet(self.OUTLET_PLACEHOLDER_ID)
+            # Outlet stays alive between sessions (idempotent _open_outlet
+            # is a no-op once set). Real cleanup happens in _on_close.
             self._reset_ui_after_session()
 
     def _abort_session(self) -> None:

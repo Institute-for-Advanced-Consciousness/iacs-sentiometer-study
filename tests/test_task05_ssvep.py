@@ -230,11 +230,15 @@ class TestFullRunWithWorkingBridge:
         )
         assert markers[-1] == "task05_end"
 
-        # Bridge interactions
+        # Bridge interactions: status once, start_ramp once, wait once,
+        # turn_off THREE TIMES — one pre-flight safety call (so the
+        # desktop isn't strobing during instructions), one as the
+        # normal post-ramp fade, and one in the `finally` block so
+        # abort/error paths always leave Vayl clean.
         assert mock_bridge.status_calls == 1
         assert len(mock_bridge.start_ramp_calls) == 1
         assert len(mock_bridge.wait_for_ramp_calls) == 1
-        assert mock_bridge.turn_off_calls == 1
+        assert mock_bridge.turn_off_calls == 3
 
         # Background fills: white flash before Vayl, black after.
         assert (255, 255, 255) in mock_io.shown_solids
@@ -317,9 +321,11 @@ class TestVaylConnectivityFailure:
                 output_dir=tmp_path,
             )
 
-        # start_ramp should NEVER have been called
+        # start_ramp should NEVER have been called. turn_off runs in the
+        # task's finally block regardless (defensive: always try to leave
+        # Vayl quiet), so we accept 1 call here.
         assert failing_bridge.start_ramp_calls == []
-        assert failing_bridge.turn_off_calls == 0
+        assert failing_bridge.turn_off_calls == 1
 
     def test_demo_mode_falls_back_to_sleep(
         self, captured_marker_outlet, tmp_path: Path
@@ -345,10 +351,11 @@ class TestVaylConnectivityFailure:
         for m in EXPECTED_MARKERS:
             assert m in markers, f"Missing marker {m}"
 
-        # Bridge was NOT driven past status()
+        # Bridge was NOT driven past status() — but turn_off still runs in
+        # the task's finally block defensively, so its counter is 1.
         assert failing_bridge.start_ramp_calls == []
         assert failing_bridge.wait_for_ramp_calls == []
-        assert failing_bridge.turn_off_calls == 0
+        assert failing_bridge.turn_off_calls == 1
 
         # Sleep fallback: io.wait was called with the configured ramp
         # duration (demo no longer shortens it — the value comes straight

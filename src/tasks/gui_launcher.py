@@ -105,6 +105,10 @@ class GuiLauncher:
         # Session state
         self.session_active = False
         self.abort_requested = False
+        # Vayl reachability is a HARD prerequisite for starting a session
+        # (Task 05 requires it). Updated by _run_preflight_checks; the
+        # Start button watches this.
+        self.vayl_ok = False
 
         # Per-task state (keyed by task_name)
         self.task_status_labels: dict[str, tk.Label] = {}
@@ -136,11 +140,14 @@ class GuiLauncher:
         # clicked.
         self._open_outlet()
 
-        # Kick off UI pump. Preflight runs only when the user clicks
-        # "Re-check hardware" — the initial auto-run used a background thread,
-        # which on macOS can crash if LSL/urllib triggers a system permission
-        # dialog (NSWindow must be instantiated on the main thread).
+        # Kick off UI pump. Schedule one preflight check after the Tk
+        # mainloop is up so the Vayl / EEG / Sentiometer rows populate
+        # without the RA having to click "Re-check hardware" first. The
+        # check runs on the main thread (required for macOS TCC system
+        # dialogs not to crash); the ~5 s freeze happens after the window
+        # has already rendered, so the RA sees UI before the freeze.
         self._poll_ui_queue()
+        self.root.after(300, self._run_preflight_checks)
 
     # ----- window setup -----------------------------------------------------
 
@@ -536,18 +543,24 @@ class GuiLauncher:
         self._update_auto_row("sentiometer", sent, blocking=False)
         self.root.update_idletasks()
         vayl = _check_vayl_reachable()
-        self._update_auto_row("vayl", vayl, blocking=False)
+        # Vayl is a *hard* requirement (Task 05 needs the desktop app). The
+        # auto-row for Vayl shows red FAIL rather than yellow WARN, and the
+        # Start button stays disabled until this flips green.
+        self._update_auto_row("vayl", vayl, blocking=True)
+        self.vayl_ok = bool(vayl)
         self._log(
             f"Hardware checks complete — EEG={eeg}, "
-            f"Sentiometer={sent}, Vayl={vayl}"
+            f"Sentiometer={sent}, Vayl={vayl} "
+            f"({'BLOCKER cleared' if vayl else 'BLOCKER — open Vayl desktop app'})"
         )
+        self._update_start_button()
 
     def _update_auto_row(self, key: str, ok: bool, blocking: bool) -> None:
         label = self.auto_status_labels.get(key)
         if not label:
             return
-        text = "OK" if ok else ("WARN" if not blocking else "FAIL")
-        color = GREEN if ok else YELLOW
+        text = "OK" if ok else ("FAIL" if blocking else "WARN")
+        color = GREEN if ok else (RED if blocking else YELLOW)
         self._ui_queue.put(lambda: label.config(text=text, fg=color))
 
     # ----- start button state ----------------------------------------------
@@ -557,7 +570,11 @@ class GuiLauncher:
             return
         have_id = bool(self.participant_id_var.get().strip())
         demo = self.demo_var.get()
-        checks_pass = demo or all(v.get() for v in self.manual_checks)
+        # Vayl reachability is required in both demo and production — the
+        # demo run still exercises Task 05 against the live bridge, and
+        # letting the RA start without it produces a confusing mid-session
+        # failure.
+        checks_pass = (demo or all(v.get() for v in self.manual_checks)) and self.vayl_ok
         if have_id and checks_pass:
             self.start_button.config(state=tk.NORMAL, style="Purple.TButton")
         else:

@@ -502,6 +502,17 @@ def run(
                     "version": str(status.get("version", "?")),
                 }
             )
+            # Idempotent safety: make sure the overlay is OFF before we
+            # begin. If a previous run (this process or another) left
+            # Vayl strobing the desktop, we don't want the participant
+            # seeing it during instructions.
+            try:
+                bridge.turn_off()
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "Pre-run bridge.turn_off() failed: %s "
+                    "(non-fatal; continuing)", exc
+                )
         except (ConnectionError, RuntimeError) as exc:
             if not demo:
                 raise RuntimeError(
@@ -598,6 +609,17 @@ def run(
         # Always restore Dock/menu-bar preferences, even if the RA aborted
         # mid-ramp. No-op if we never hid them.
         chrome_hider.__exit__(None, None, None)
+        # Always try to stop Vayl strobing on the way out, even on abort
+        # or an exception mid-ramp. turn_off is idempotent so calling it
+        # when the overlay is already down is a cheap no-op.
+        if bridge is not None:
+            try:
+                bridge.turn_off()
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "finally bridge.turn_off() failed: %s "
+                    "(desktop may still be strobing — check Vayl)", exc
+                )
         cleanup()
         if own_outlet:
             del outlet

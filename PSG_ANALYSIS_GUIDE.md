@@ -40,26 +40,71 @@ P013 sleep montage** they carry:
 If the wiring ever changes, update `config/psg_mapping.yaml` before
 running the converter (the `label` field for each `ExGa N` entry).
 
-## Producing the EDF+
+## Producing the EDF+ bundle (full Paller handoff)
+
+There are two ways to produce an EDF+ from a session XDF:
+
+### Option A — full Paller handoff pipeline (recommended)
+
+One command generates the EDF + PDF manifest + README + diagnostics:
 
 ```bash
+# 1. Drop the session XDF into sampledata/ (any filename; newest wins).
+#    BIDS-style "sub-<id>_..." filenames auto-extract the subject ID;
+#    anything else falls back to the first underscore-delimited token.
+cp <path-to.xdf> sampledata/
+
+# 2. One-shot runner — executes all four steps in order:
 uv sync --extra dev
-uv run python scripts/xdf_to_edf.py \
-    sampledata/sub-<id>_ses-S001_task-Default_run-001_eeg.xdf \
-    sampledata/sub-<id>_PSG.edf \
-    --mapping config/psg_mapping.yaml
+uv run python scripts/xdf_to_edf/run_all.py
 ```
 
-The mapping file restricts the EDF to the PSG essentials (see below).
-Dropping `--mapping` writes an EDF with *every* non-marker, non-impedance
-channel — ~70 channels — which is valid but much larger than needed.
+The pipeline writes everything to `outputs/<SUBJECT>/`:
+
+```
+outputs/<SUBJECT>/
+├── P013_<SUBJECT>_for_paller.edf          # 75-channel EDF+ at 500 Hz
+├── P013_<SUBJECT>_channel_manifest.pdf    # numbered channel table + scoring notes
+├── P013_<SUBJECT>_README.txt              # quickstart for the recipient
+├── P013_<SUBJECT>_conversion_log.txt      # every decision the converter made
+└── diagnostics/
+    ├── eeg_first_120s_rms.png              # peripheral-saturation heatmap
+    ├── eeg_time_course_first_2min.png      # Fp1 / Cz / Oz / TP9 raw traces
+    ├── psd_by_modality.png                 # Welch PSD on a clean 60s window at t=300
+    ├── psd_data.csv                        # same PSDs as CSV
+    └── line_noise_report.txt               # 60/120/180 Hz SNR + broadband ratios + impedance
+```
+
+Run the individual steps if you want to review in isolation (each
+script auto-detects the newest XDF and writes to the same bundle):
+
+| Step | Command | What it does |
+|---|---|---|
+| 1 | `uv run python scripts/xdf_to_edf/01_inspect.py` | Read-only inventory + forensic on the first 120 s of EEG |
+| 1b | `uv run python scripts/xdf_to_edf/01b_spectral.py` | Welch PSD + line-noise report + impedance snapshot |
+| 2 | `uv run python scripts/xdf_to_edf/02_convert.py` | Write the EDF+ with a per-channel spot check |
+| 3 | `uv run python scripts/xdf_to_edf/03_manifest.py` | Generate the PDF manifest and the recipient README |
+
+To run on a specific XDF (not the newest in `sampledata/`), put just
+that file in `sampledata/` or edit `find_xdf()` in `_common.py`.
+
+### Option B — minimal ad-hoc converter
+
+Skip the forensics and manifest; just convert an XDF with a PSG channel
+subset. Good for quick iterations when you already trust the data:
+
+```bash
+uv run python scripts/xdf_to_edf.py \
+    sampledata/<file>.xdf sampledata/<file>_PSG.edf \
+    --mapping config/psg_mapping.yaml
+```
 
 Verify the result:
 
 ```bash
 uv run python -c "
 import pyedflib
-f = pyedflib.EdfReader('sampledata/sub-<id>_PSG.edf')
+f = pyedflib.EdfReader('sampledata/<file>_PSG.edf')
 print(f.getStartdatetime(), f.file_duration/60, 'min')
 print(f.getSignalLabels())
 f.close()

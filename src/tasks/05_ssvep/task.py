@@ -5,25 +5,33 @@ full-screen pattern-reversal checkerboard overlay directly on the GPU, so
 our task code is a thin orchestrator that (a) shows participant-facing
 instruction and completion screens in Pygame, (b) talks to Vayl over its
 localhost HTTP API via :mod:`vayl_lsl_bridge`, and (c) emits coarse
-boundary markers on the shared ``P013_Task_Markers`` stream. The
-fine-grained frequency tracking lives in the two LSL streams Vayl's bridge
-creates automatically:
+boundary markers on the shared ``P013_Task_Markers`` stream.
 
-* ``VaylStim`` — marker stream with JSON events (``ramp_start``,
-  ``overlay_off``, including server-side ``wallTimeMs``).
-* ``VaylStim_Freq`` — continuous float32 stream at 250 Hz reporting the
-  current effective SSVEP frequency.
+**Marker routing (updated bridge).** The new :mod:`vayl_lsl_bridge`
+accepts an externally-created marker outlet, so Vayl's
+``ramp_start`` / ``ramp_stop`` / ``overlay_off`` JSON events are pushed
+directly into the same shared ``P013_Task_Markers`` outlet used by every
+other task — no separate ``VaylStim`` stream is advertised. The bridge's
+250 Hz effective-frequency stream (``VaylStim_Freq``) is a float channel
+incompatible with a string marker outlet, so it is only created when
+``vayl_emit_frequency_stream: true`` is set in the session config;
+otherwise analysis reconstructs effective Hz analytically from the
+``ramp_start`` JSON payload (which carries ``stimFreqHz``,
+``stimFreqEndHz``, ``durationSeconds``, and the sub-ms ``wallTimeMs``).
 
-LabRecorder picks up both of those alongside ``P013_Task_Markers``, the
-EEG stream, the CGX AIM-2 stream, and the Sentiometer stream into the
-session's XDF file.
+**LAP protocol flags.** Each ramp is now configured at the HTTP level
+with the three flags Vayl's Labelled Amplitude Protocol expects:
+``labOpaque`` (unit-amplitude LAP bypass, required for pattern-reversal
+SSVEP), ``checkerboardEnabled`` (force the checkerboard visual), and
+``checkerSize`` (pixels per square). Defaults live under the
+``task05_ssvep:`` block of ``config/session_defaults.yaml`` and are
+passed through the bridge's ``start_ramp`` kwargs.
 
-**Carrier vs. effective frequency.** Pattern reversal produces two visual
-events per carrier cycle (black -> white and white -> black), so the
-effective SSVEP frequency is ``2 * carrier_hz``. The config file stores
-carriers (``20.0 -> 0.5`` by default); the bridge reports effective Hz on
-its own streams; this task's P013 markers only emit coarse boundaries and
-do not duplicate the fine-grained frequency data.
+**Carrier vs. effective frequency.** Pattern reversal produces two
+visual events per carrier cycle (black -> white and white -> black),
+so the effective SSVEP frequency is ``2 * carrier_hz``. The config
+file stores carriers (``20.0 -> 0.5`` by default); the bridge pushes
+effective values on the marker payloads.
 
 Like Tasks 01-04, side-effecting I/O (Pygame display, sleep) is bundled
 into a ``TaskIO`` dataclass, and the Vayl bridge is passed in via
@@ -460,18 +468,11 @@ def run(
         bridge = VaylBridge(
             api_url=config["vayl_api_url"],
             lsl_stream_name=config["vayl_lsl_stream_name"],
+            marker_outlet=outlet,  # reuse P013_Task_Markers — no VaylStim outlet
+            emit_frequency_stream=config.get(
+                "vayl_emit_frequency_stream", False
+            ),
         )
-        # Point the bridge's JSON marker events (ramp_start, ramp_stop,
-        # overlay_off with wallTimeMs) at the shared P013 marker outlet so
-        # RAs only need to tick one marker stream in LabRecorder. The
-        # bridge keeps its own VaylStim_Freq outlet because that's a
-        # 250 Hz float stream — incompatible with a string marker channel.
-        # We drop the reference to the original VaylStim outlet so the
-        # redundant stream stops being advertised.
-        if outlet is not None and getattr(bridge, "outlet", None) is not None:
-            old_vayl_outlet = bridge.outlet
-            bridge.outlet = outlet
-            del old_vayl_outlet
 
     entries: list[dict] = []
     # Declared here so the `finally` block can always restore chrome, even
@@ -537,7 +538,14 @@ def run(
 
         send_marker(outlet, "task05_ramp_begin")
         if vayl_available:
-            ramp_result = bridge.start_ramp(start_hz, end_hz, duration_s)
+            ramp_result = bridge.start_ramp(
+                start_hz,
+                end_hz,
+                duration_s,
+                lab_opaque=config.get("vayl_lab_opaque", True),
+                checkerboard_enabled=config.get("vayl_checkerboard_enabled", True),
+                checker_size=config.get("vayl_checker_size", 100),
+            )
             timing = ramp_result.get("timing", {}) if isinstance(ramp_result, dict) else {}
             entries.append(
                 {

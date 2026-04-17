@@ -89,3 +89,7 @@ task05_ssvep:
   ramp_duration_s: 300
   vayl_lsl_stream_name: "VaylStim"
   vayl_api_url: "http://127.0.0.1:9471"
+  vayl_emit_frequency_stream: false   # omit the 250Hz VaylStim_Freq outlet; markers fold into P013_Task_Markers
+  vayl_lab_opaque: true               # unit-amplitude LAP bypass (required for pattern-reversal SSVEP)
+  vayl_checkerboard_enabled: true     # force checkerboard visual mode for this task
+  vayl_checker_size: 100              # pixels per checker square

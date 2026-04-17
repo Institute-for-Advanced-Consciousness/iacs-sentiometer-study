@@ -33,9 +33,13 @@ from scipy import signal
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SAMPLE_DIR = REPO_ROOT / "sampledata"
-DIAG_DIR = REPO_ROOT / "outputs" / "diagnostics"
+from _common import (
+    REPO_ROOT,
+    SAMPLE_DIR,
+    diag_dir_for,
+    find_xdf as _find_xdf_common,
+    subject_from_xdf,
+)
 
 FS_EXPECTED = 500.0
 SEG_START_S = 300.0
@@ -92,10 +96,7 @@ def _channel_labels(stream: dict) -> list[str]:
 
 
 def _find_xdf() -> Path:
-    xdfs = sorted(SAMPLE_DIR.glob("*.xdf"))
-    if not xdfs:
-        raise SystemExit(f"No .xdf in {SAMPLE_DIR}")
-    return xdfs[0]
+    return _find_xdf_common()
 
 
 def _slice_segment(stream: dict, start_s: float, dur_s: float) -> tuple[np.ndarray, np.ndarray]:
@@ -186,8 +187,10 @@ def _impedance_snapshot(streams: list[dict]) -> list[str]:
 
 
 def main() -> int:
-    DIAG_DIR.mkdir(parents=True, exist_ok=True)
     xdf_path = _find_xdf()
+    subject = subject_from_xdf(xdf_path)
+    diag_dir = diag_dir_for(subject)
+    print(f"Subject: {subject}")
     print(f"Loading {xdf_path} …")
     streams, _ = pyxdf.load_xdf(str(xdf_path))
 
@@ -256,13 +259,13 @@ def main() -> int:
         f"segment starting at t = {SEG_START_S:.0f} s"
     )
     fig.tight_layout()
-    png_path = DIAG_DIR / "psd_by_modality.png"
+    png_path = diag_dir /"psd_by_modality.png"
     fig.savefig(png_path, dpi=140)
     plt.close(fig)
     print(f"wrote {png_path}")
 
     # ----- CSV --------------------------------------------------------------
-    csv_path = DIAG_DIR / "psd_data.csv"
+    csv_path = diag_dir /"psd_data.csv"
     # All PSDs should share frequency axis since FS + nperseg are the same.
     freq_axis = next(iter(psd_table.values()))[0]
     with open(csv_path, "w", newline="") as fh:
@@ -412,7 +415,7 @@ def main() -> int:
             "impedance stream)."
         )
 
-    txt_path = DIAG_DIR / "line_noise_report.txt"
+    txt_path = diag_dir /"line_noise_report.txt"
     txt_path.write_text("\n".join(report_lines) + "\n")
     print(f"wrote {txt_path}")
     return 0

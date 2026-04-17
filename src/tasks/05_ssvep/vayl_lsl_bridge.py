@@ -18,16 +18,43 @@ QUICK START:
     python vayl_lsl_bridge.py --start-hz 20 --end-hz 0.5 --duration 10 \\
                               --lsl-stream VaylStim --wait
 
-USAGE (as library):
+USAGE (as library, bridge-owned outlets — default):
     from vayl_lsl_bridge import VaylBridge
     bridge = VaylBridge(lsl_stream_name="VaylStim")
     bridge.start_ramp(start_hz=20, end_hz=0.5, duration_seconds=10)
     bridge.wait_for_ramp(10)
     bridge.turn_off()
 
-LSL STREAMS (two outlets created per --lsl-stream name):
-    "{name}"      — Marker stream (irregular, string, JSON events)
-    "{name}_Freq" — Continuous effective SSVEP Hz (250 samp/s, float32)
+USAGE (as library, LAP protocol run):
+    bridge.start_ramp(
+        start_hz=0.5, end_hz=20, duration_seconds=300,
+        lab_opaque=True,              # unit-amplitude bypass
+        checkerboard_enabled=True,    # force checkerboard mode
+        checker_size=100,             # pixels per square
+    )
+    # Any flag left as None inherits the current Vayl UI setting.
+
+USAGE (as library, reusing a caller-owned session outlet):
+    from pylsl import StreamInfo, StreamOutlet
+    session_outlet = StreamOutlet(StreamInfo(
+        "P013_Task_Markers", "Markers", 1, 0, "string", "P013_DEMO"))
+    bridge = VaylBridge(
+        lsl_stream_name="VaylStim",    # only names the _Freq outlet now
+        marker_outlet=session_outlet,  # reuse caller's string outlet
+        emit_frequency_stream=False,   # or True to also get VaylStim_Freq
+    )
+    bridge.start_ramp(20, 0.5, 10)
+
+LSL STREAMS:
+    Marker events: pushed into whichever outlet you gave the bridge.
+      - If ``marker_outlet`` was provided, events go into that outlet and
+        no VaylStim outlet is advertised.
+      - Otherwise an outlet named "{lsl_stream_name}" is created (string,
+        irregular rate).
+    Continuous Hz: "{lsl_stream_name}_Freq" — 250 samp/s, float32, carrying
+      the effective SSVEP frequency. Created only when
+      ``emit_frequency_stream=True`` (default). Cannot be folded into the
+      markers outlet because LSL locks channel format per outlet.
 
     wallTimeMs in marker JSON = server-side epoch ms at native GPU call
     (~1-5 ms before LSL push; sub-ms accurate to actual visual onset).
@@ -85,14 +112,33 @@ class VaylBridge:
         Bearer token for API auth. Only needed if VAYL_API_SECRET is set
         in the Vayl app's environment. Pass None for no auth.
     lsl_stream_name : str or None
-        If provided, two LSL outlets are created:
-        1. "{name}" — irregular marker stream (start/stop/off events)
-        2. "{name}_Freq" — continuous float stream with carrier Hz
-        Pass None to skip LSL entirely.
+        Name used when the bridge creates its OWN marker outlet. Also used
+        as the base name for the ``{name}_Freq`` continuous stream.
+        Pass None to skip LSL entirely (and pass no ``marker_outlet``).
     lsl_stream_type : str
-        LSL stream type for the marker stream (default: "Markers").
+        LSL stream type for the marker stream when the bridge creates one
+        (default: "Markers"). Ignored if ``marker_outlet`` is provided.
     lsl_data_rate : int
         Sample rate in Hz for the continuous frequency stream (default: 250).
+    marker_outlet : pylsl.StreamOutlet or None
+        Reuse a caller-owned marker outlet (e.g. a session-wide outlet like
+        ``P013_Task_Markers``) instead of having the bridge create its own.
+        When provided, the bridge pushes its JSON events into this outlet
+        and does NOT advertise a ``{lsl_stream_name}`` stream on the
+        network. The caller owns the outlet's lifetime; the bridge never
+        closes it. Must be a string / irregular-rate outlet
+        (``channel_format="string"``, ``nominal_srate=0``) — that's what
+        ``push_sample([json_str], ts)`` requires.
+    emit_frequency_stream : bool
+        If True (default), advertise a ``{lsl_stream_name}_Freq`` continuous
+        float32 outlet carrying the effective SSVEP Hz at ``lsl_data_rate``.
+        If False, the bridge creates no frequency outlet and does not spawn
+        the background streaming thread — use this when the caller only
+        wants boundary markers and will reconstruct Hz offline from the
+        ramp params in the ``ramp_start`` JSON. Note: LSL outlets lock
+        their channel format at creation, so the float freq channel
+        physically cannot fold into a string markers outlet; sharing a
+        single outlet for both is not an option LSL supports.
     """
 
     def __init__(
@@ -102,6 +148,8 @@ class VaylBridge:
         lsl_stream_name=None,
         lsl_stream_type="Markers",
         lsl_data_rate=250,
+        marker_outlet=None,
+        emit_frequency_stream=True,
     ):
         self.api_url = api_url.rstrip("/")
         self.api_secret = api_secret
@@ -110,9 +158,25 @@ class VaylBridge:
         self._freq_thread = None
         self._freq_stop = threading.Event()
         self._lsl_data_rate = lsl_data_rate
+        self._owns_marker_outlet = False
 
-        # ── Create LSL outlets if requested ───────────────────────────
-        if lsl_stream_name:
+        # ── Marker outlet: reuse caller's if provided, else create one ─
+        # In-process, LSL outlets are ordinary Python objects — any caller
+        # holding the handle can push into it. This lets a host launcher
+        # (e.g. a session that already owns P013_Task_Markers) have Vayl's
+        # events interleaved into its own marker stream instead of adding
+        # a second advertised outlet to the LSL network.
+        if marker_outlet is not None:
+            self.outlet = marker_outlet
+            try:
+                _name = marker_outlet.get_info().name()
+            except Exception:
+                _name = "<caller-owned>"
+            print(
+                f"[VaylBridge] Using caller-provided marker outlet "
+                f"'{_name}' — not creating a VaylBridge marker outlet."
+            )
+        elif lsl_stream_name:
             if not HAS_LSL:
                 raise ImportError(
                     "pylsl is required for LSL streaming. "
@@ -128,8 +192,22 @@ class VaylBridge:
                 source_id=f"vayl_bridge_{lsl_stream_name}",
             )
             self.outlet = StreamOutlet(info)
+            self._owns_marker_outlet = True
+            print(
+                f"[VaylBridge] LSL marker outlet created: "
+                f"'{lsl_stream_name}' (type={lsl_stream_type})"
+            )
 
-            # Continuous frequency stream — regular rate, float channel (Hz)
+        # ── Continuous frequency outlet (always bridge-owned when used) ─
+        # LSL outlets are single-channel-format; the 250 Hz float channel
+        # cannot share a string markers outlet. Opt out with
+        # emit_frequency_stream=False if you only need boundary markers.
+        if emit_frequency_stream and lsl_stream_name:
+            if not HAS_LSL:
+                raise ImportError(
+                    "pylsl is required for LSL streaming. "
+                    "Install it with:  pip install pylsl"
+                )
             freq_info = StreamInfo(
                 name=f"{lsl_stream_name}_Freq",
                 type="Stimulus",
@@ -139,11 +217,12 @@ class VaylBridge:
                 source_id=f"vayl_freq_{lsl_stream_name}",
             )
             self._freq_outlet = StreamOutlet(freq_info)
-
-            print(f"[VaylBridge] LSL outlets created:")
-            print(f"  Markers: '{lsl_stream_name}' (type={lsl_stream_type})")
-            print(f"  Freq:    '{lsl_stream_name}_Freq' "
-                  f"(type=Stimulus, {lsl_data_rate} Hz)")
+            print(
+                f"[VaylBridge] LSL freq outlet created: "
+                f"'{lsl_stream_name}_Freq' (type=Stimulus, "
+                f"{lsl_data_rate} Hz). "
+                f"Pass emit_frequency_stream=False to disable."
+            )
 
     # ------------------------------------------------------------------
     # Continuous frequency stream (background thread)
@@ -233,7 +312,16 @@ class VaylBridge:
         """Check that the Vayl app is running and the API is reachable."""
         return self._request("GET", "/api/status")
 
-    def start_ramp(self, start_hz, end_hz, duration_seconds):
+    def start_ramp(
+        self,
+        start_hz,
+        end_hz,
+        duration_seconds,
+        *,
+        lab_opaque=None,
+        checkerboard_enabled=None,
+        checker_size=None,
+    ):
         """
         Start a carrier-frequency ramp on the Vayl overlay.
 
@@ -249,25 +337,56 @@ class VaylBridge:
             Ending carrier frequency in Hz (same as start_hz for constant).
         duration_seconds : float
             Duration of the frequency sweep in seconds.
+        lab_opaque : bool or None
+            Opt-in unit-amplitude (LAP) bypass. When ``True``, the shader
+            gates perceptual-comfort scalars to 1.0 — carrier still drives
+            the black↔white pattern reversal but at full 0→1 amplitude
+            instead of the normal 0.35 × intensity × fade ceiling. When
+            ``None`` (default) the field is omitted from the request and
+            Vayl inherits the current setting (``False`` by default).
+            Required for pattern-reversal SSVEP / LAP protocols.
+        checkerboard_enabled : bool or None
+            Force the overlay into checkerboard (``visualMode=3``) mode for
+            this ramp. Omit (``None``) to inherit the current visual mode.
+        checker_size : int or None
+            Pixels per checker square (typical research range 50-200,
+            default ``100`` in Vayl). Omit to inherit.
 
         Returns
         -------
         dict
             API response with 'status', 'params', and 'timing' fields.
-            timing.wallTimeMs is the server-side Unix epoch ms of ramp onset.
+            timing.wallTimeMs is the server-side Unix epoch ms of ramp
+            onset. ``params`` echoes all flags the server applied, so the
+            caller can verify exactly what took effect.
         """
-        result = self._request("POST", "/api/carrier-ramp/start", {
+        # Build body: include optional fields only when the caller set them,
+        # so omitting inherits from Vayl's current UI settings rather than
+        # forcing a (possibly-wrong) default over them.
+        body = {
             "startHz": start_hz,
             "endHz": end_hz,
             "durationSeconds": duration_seconds,
-        })
+        }
+        if lab_opaque is not None:
+            body["labOpaque"] = bool(lab_opaque)
+        if checkerboard_enabled is not None:
+            body["checkerboardEnabled"] = bool(checkerboard_enabled)
+        if checker_size is not None:
+            body["checkerSize"] = int(checker_size)
+
+        result = self._request("POST", "/api/carrier-ramp/start", body)
 
         # ── Push LSL marker ───────────────────────────────────────────
-        # Report effective SSVEP frequency (2× carrier for pattern-reversal)
+        # Report effective SSVEP frequency (2× carrier for pattern-reversal).
+        # Echo the server-applied protocol flags from result["params"] so
+        # downstream analysis can separate LAP from non-LAP runs without
+        # cross-referencing a config file.
         if self.outlet:
             eff_start = start_hz * SSVEP_FREQ_MULTIPLIER
             eff_end = end_hz * SSVEP_FREQ_MULTIPLIER
-            marker = json.dumps({
+            params = result.get("params", {}) if isinstance(result, dict) else {}
+            marker_payload = {
                 "event": "ramp_start",
                 "stimFreqHz": eff_start,
                 "stimFreqEndHz": eff_end,
@@ -275,9 +394,15 @@ class VaylBridge:
                 "carrierEndHz": end_hz,
                 "durationSeconds": duration_seconds,
                 "wallTimeMs": result["timing"]["wallTimeMs"],
-            })
+                # Server-applied protocol flags (may be None if inherited)
+                "labOpaque": params.get("labOpaque"),
+                "checkerboardEnabled": params.get("checkerboardEnabled"),
+                "checkerSize": params.get("checkerSize"),
+            }
+            marker = json.dumps(marker_payload)
             self.outlet.push_sample([marker], local_clock())
-            print(f"[VaylBridge] LSL marker: ramp_start "
+            lap_tag = " [LAP]" if params.get("labOpaque") else ""
+            print(f"[VaylBridge] LSL marker: ramp_start{lap_tag} "
                   f"(stim {eff_start}->{eff_end} Hz, "
                   f"carrier {start_hz}->{end_hz} Hz, {duration_seconds}s)")
 
@@ -373,6 +498,11 @@ Examples:
   python vayl_lsl_bridge.py --start-hz 20 --end-hz 0.5 --duration 10 \\
                             --lsl-stream VaylStim --wait
 
+  # LAP protocol: unit-amplitude checkerboard, 300s ramp, full opacity bypass:
+  python vayl_lsl_bridge.py --start-hz 0.5 --end-hz 20 --duration 300 \\
+                            --lsl-stream VaylStim --wait \\
+                            --lab-opaque --checkerboard --checker-size 100
+
   # Just trigger, no LSL:
   python vayl_lsl_bridge.py --start-hz 20 --end-hz 0.5 --duration 10
         """,
@@ -405,6 +535,24 @@ Examples:
         "--wait", action="store_true",
         help="Block until the ramp completes before exiting",
     )
+    # ── LAP / checkerboard protocol flags (all optional) ──────────────
+    parser.add_argument(
+        "--lab-opaque", action="store_true", default=None,
+        help="Opt-in unit-amplitude (LAP) bypass — carrier still drives "
+             "black↔white reversal but at full 0→1 amplitude (bypasses "
+             "perceptual-comfort scaling). Required for LAP protocols.",
+    )
+    parser.add_argument(
+        "--checkerboard", dest="checkerboard_enabled",
+        action="store_true", default=None,
+        help="Force checkerboard visual mode for this ramp (omit to "
+             "inherit whatever mode Vayl's UI is currently in).",
+    )
+    parser.add_argument(
+        "--checker-size", type=int, default=None,
+        help="Pixels per checker square (typical lab range 50-200, "
+             "default 100). Omit to inherit from UI.",
+    )
     args = parser.parse_args()
 
     # ── Initialize bridge ─────────────────────────────────────────────
@@ -428,7 +576,14 @@ Examples:
         return 1
 
     # ── Start ramp ────────────────────────────────────────────────────
-    result = bridge.start_ramp(args.start_hz, args.end_hz, args.duration)
+    result = bridge.start_ramp(
+        args.start_hz,
+        args.end_hz,
+        args.duration,
+        lab_opaque=args.lab_opaque,
+        checkerboard_enabled=args.checkerboard_enabled,
+        checker_size=args.checker_size,
+    )
 
     t = result["timing"]
     eff_start = args.start_hz * SSVEP_FREQ_MULTIPLIER

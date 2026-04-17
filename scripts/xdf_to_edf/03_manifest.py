@@ -39,11 +39,14 @@ from reportlab.platypus import (
     PageBreak,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SAMPLE_DIR = REPO_ROOT / "sampledata"
-OUT_DIR = REPO_ROOT / "outputs"
-EDF_PATH = OUT_DIR / "P013_PILOT_01_for_paller.edf"
-PDF_PATH = OUT_DIR / "P013_PILOT_01_channel_manifest.pdf"
+from _common import (
+    SAMPLE_DIR,
+    edf_path_for,
+    find_xdf as _find_xdf_common,
+    manifest_path_for,
+    readme_path_for,
+    subject_from_xdf,
+)
 
 # From Step 1 forensic.
 BAD_RAIL = {
@@ -159,10 +162,7 @@ def _get(d, *keys, default=""):
 
 
 def _find_xdf():
-    xdfs = sorted(SAMPLE_DIR.glob("*.xdf"))
-    if not xdfs:
-        raise SystemExit(f"No .xdf in {SAMPLE_DIR}")
-    return xdfs[0]
+    return _find_xdf_common()
 
 
 def _unique_markers(streams):
@@ -179,12 +179,19 @@ def _unique_markers(streams):
 
 
 def main() -> int:
-    if not EDF_PATH.exists():
-        raise SystemExit(f"EDF missing — run 02_convert.py first. ({EDF_PATH})")
     xdf_path = _find_xdf()
+    subject = subject_from_xdf(xdf_path)
+    edf_path = edf_path_for(subject)
+    pdf_path = manifest_path_for(subject)
+    readme_path = readme_path_for(subject)
+    print(f"Subject: {subject}")
+    if not edf_path.exists():
+        raise SystemExit(
+            f"EDF missing — run 02_convert.py first ({edf_path})"
+        )
     streams, _ = pyxdf.load_xdf(str(xdf_path))
 
-    edf = pyedflib.EdfReader(str(EDF_PATH))
+    edf = pyedflib.EdfReader(str(edf_path))
     try:
         labels = edf.getSignalLabels()
         fs = [edf.getSampleFrequency(i) for i in range(edf.signals_in_file)]
@@ -217,7 +224,7 @@ def main() -> int:
     )
 
     doc = SimpleDocTemplate(
-        str(PDF_PATH),
+        str(pdf_path),
         pagesize=letter,
         rightMargin=0.6 * inch,
         leftMargin=0.6 * inch,
@@ -231,7 +238,7 @@ def main() -> int:
         "P013 Sleep Recording — Channel Manifest for Scoring", h1
     ))
     story.append(Paragraph(
-        f"Subject code: <b>PILOT_01</b> (anonymised; pilot IACS staff)  "
+        f"Subject code: <b>{subject}</b>  "
         f"&nbsp;&nbsp; Protocol: <b>P013</b>", body
     ))
     story.append(Paragraph(
@@ -646,8 +653,80 @@ def main() -> int:
     ))
 
     doc.build(story)
-    print(f"wrote {PDF_PATH}")
+    print(f"wrote {pdf_path}")
+
+    # ----- Subject-specific README (regenerated alongside the PDF) -----
+    n_red = sum(1 for lab in labels if lab in BAD_RAIL)
+    readme_path.write_text(_README_TEMPLATE.format(
+        subject=subject,
+        edf_name=edf_path.name,
+        manifest_name=pdf_path.name,
+        readme_name=readme_path.name,
+        duration_min=f"{dur/60:.2f}",
+        n_channels=len(labels),
+        n_red=n_red,
+    ))
+    print(f"wrote {readme_path}")
     return 0
+
+
+_README_TEMPLATE = """\
+P013 {subject} — PSG handoff for Dr. Ken Paller
+================================================
+
+ONE-LINE ANSWER
+---------------
+Mastoid = the bony protrusion BEHIND the ear (the mastoid process of the
+temporal bone). Yes — that's our EOG reference. E1 referenced to M2,
+E2 referenced to M1, at the CGX AIM-2 hardware level, AASM-standard.
+
+
+CONTENTS
+--------
+{edf_name}              EDF+, {n_channels} channels, 500 Hz, {duration_min} min
+{manifest_name}    Numbered channel table + scoring notes
+{readme_name}              This file (quickstart)
+P013_{subject}_conversion_log.txt    Decisions + assumptions from conversion
+
+diagnostics/
+  eeg_first_120s_rms.png             Peripheral saturation heatmap
+  eeg_time_course_first_2min.png     Raw traces of Fp1 / Cz / Oz / TP9
+  psd_by_modality.png                PSD of key channels (60 s, t=300)
+  psd_data.csv                       PSDs as CSV
+  line_noise_report.txt              60/120/180 Hz SNR per channel
+
+
+HOW TO OPEN
+-----------
+Any EDF+ reader works. Tested:
+  - EDFbrowser (free, cross-platform)   https://www.teuniz.net/edfbrowser/
+  - Polyman / WonamBi                   (your existing scoring workflow)
+  - MNE-Python:   mne.io.read_raw_edf("{edf_name}")
+  - EEGLAB:       pop_biosig("{edf_name}")
+
+
+RECOMMENDED SCORING CHANNELS
+----------------------------
+E1-M2                left EOG  (AASM)
+E2-M1                right EOG (AASM)
+ChinZ-Chin1          primary chin EMG
+Chin2-Chin1prime     backup chin EMG
+
+Cap EEG: Cz, C3, C4, Fz, F3, F4, Pz, P3, P4 are typically clean; see
+Section 2 of the manifest PDF for this recording's per-channel quality
+tally ({n_red} rail-saturated channels flagged RED in this run).
+
+TP9 / TP10 mastoid proxies: check Section 2 — if they're flagged RED,
+use one of the three workarounds in Section 4 (monopolar-to-FCz,
+common-average, or contralateral homologs).
+
+
+CONTACT
+-------
+Nicco Reggente, Ph.D.
+Institute for Advanced Consciousness Studies
+nicco@advancedconsciousness.org
+"""
 
 
 def _marker_meaning(m: str) -> str:

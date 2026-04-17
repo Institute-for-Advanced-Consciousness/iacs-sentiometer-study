@@ -225,6 +225,54 @@ uv run python scripts/verify_xdf.py --timeline-summary-only
 
 ---
 
+## Shipping a session to a sleep scorer (XDF → EDF+ bundle)
+
+Sleep sessions go to Dr. Ken Paller's lab as an EDF+ with a channel
+manifest. The full pipeline lives under `scripts/xdf_to_edf/`:
+
+```bash
+# 1. Drop the session XDF into sampledata/ — the newest file wins.
+#    BIDS-style `sub-<id>_…` filenames auto-extract the subject ID; use
+#    short alphanumeric names like Sam / S001 / PILOT_02.
+cp <path-to.xdf> sampledata/
+
+# 2. One-shot runner — generates the whole bundle at outputs/<SUBJECT>/.
+uv sync --extra dev
+uv run python scripts/xdf_to_edf/run_all.py
+```
+
+That produces:
+
+```
+outputs/<SUBJECT>/
+├── P013_<SUBJECT>_for_paller.edf
+├── P013_<SUBJECT>_channel_manifest.pdf
+├── P013_<SUBJECT>_README.txt
+├── P013_<SUBJECT>_conversion_log.txt
+└── diagnostics/
+    ├── eeg_first_120s_rms.png
+    ├── eeg_time_course_first_2min.png
+    ├── psd_by_modality.png
+    ├── psd_data.csv
+    └── line_noise_report.txt
+```
+
+Individual steps (each autodetects the newest XDF and writes to the
+same bundle so you can re-run just one):
+
+| Step | Script | Purpose |
+|---|---|---|
+| 1 | `01_inspect.py` | Read-only inventory + forensic on first 120 s of EEG |
+| 1b | `01b_spectral.py` | Welch PSD + line-noise report + impedance snapshot |
+| 2 | `02_convert.py` | Write EDF+ with spot-check |
+| 3 | `03_manifest.py` | PDF manifest + recipient README |
+
+See [`PSG_ANALYSIS_GUIDE.md`](PSG_ANALYSIS_GUIDE.md) for the full
+channel layout, wiring conventions, and scoring caveats that ride
+along in the manifest.
+
+---
+
 ## Running tests
 
 ```bash

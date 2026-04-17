@@ -37,13 +37,17 @@ import pyxdf
 # inside the forensic function so the base inspection still runs on a
 # dev box without the tasks extra installed.
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SAMPLE_DIR = REPO_ROOT / "sampledata"
-REF_DIR = REPO_ROOT / "Reference"
-OUTPUTS_DIR = REPO_ROOT / "outputs"
-DIAG_DIR = OUTPUTS_DIR / "diagnostics"
-CFG_PATH = REF_DIR / "Brain Amp Series Connector Configuration File - USE THIS ONE FOR 64 - 2026.cfg"
-RWKSP_PATH = REF_DIR / "64 Channel Default 2021 Workspace - USE THIS ONE FOR 64 - 2026.rwksp"
+from _common import (
+    CFG_PATH,
+    RWKSP_PATH,
+    SAMPLE_DIR,
+    REF_DIR,
+    REPO_ROOT,
+    diag_dir_for,
+    find_xdf as _find_xdf_common,
+    subject_from_xdf,
+)
+
 PT = ZoneInfo("America/Los_Angeles")
 
 # BrainAmp Standard at `resolution=0` (from .cfg) = 0.1 µV / LSB, 16-bit
@@ -73,15 +77,8 @@ def h2(text: str) -> None:
 
 
 def find_xdf() -> Path:
-    xdfs = sorted(SAMPLE_DIR.glob("*.xdf"))
-    if len(xdfs) == 0:
-        print(f"STOP: no .xdf in {SAMPLE_DIR}", file=sys.stderr)
-        sys.exit(2)
-    if len(xdfs) > 1:
-        names = "\n  ".join(p.name for p in xdfs)
-        print(f"STOP: multiple .xdf in {SAMPLE_DIR}:\n  {names}", file=sys.stderr)
-        sys.exit(2)
-    return xdfs[0]
+    """Newest .xdf in sampledata/ (ties broken by mtime). See _common.find_xdf."""
+    return _find_xdf_common()
 
 
 def _get(d: object, *keys: str, default: object = "") -> object:
@@ -191,14 +188,14 @@ def _window_mask(ts: np.ndarray, t0: float, start_s: float, end_s: float) -> np.
     return (ts >= t0 + start_s) & (ts < t0 + end_s)
 
 
-def forensic_brainamp_first_120s(streams: list[dict]) -> dict:
+def forensic_brainamp_first_120s(streams: list[dict], diag_dir: Path) -> dict:
     """Produce the forensic diagnostic panel + report for Paller.
 
-    Writes two PNGs under outputs/diagnostics/ and returns a summary dict
-    that feeds the hypothesis section.
+    Writes two PNGs under *diag_dir* and returns a summary dict that
+    feeds the hypothesis section.
     """
     banner("FORENSIC — BrainAmpSeries first 120 s")
-    DIAG_DIR.mkdir(parents=True, exist_ok=True)
+    diag_dir.mkdir(parents=True, exist_ok=True)
 
     eeg = _stream_by_name(streams, "BrainAmpSeries-Dev_1")
     if eeg is None:
@@ -365,7 +362,7 @@ def forensic_brainamp_first_120s(streams: list[dict]) -> dict:
     ax.text(55.5, rms.shape[1] - 1, "t=55 s (reported)", color="white",
             fontsize=8, va="top")
     fig.tight_layout()
-    rms_path = DIAG_DIR / "eeg_first_120s_rms.png"
+    rms_path = diag_dir /"eeg_first_120s_rms.png"
     fig.savefig(rms_path, dpi=140)
     plt.close(fig)
     print(f"  wrote {rms_path}")
@@ -392,7 +389,7 @@ def forensic_brainamp_first_120s(streams: list[dict]) -> dict:
         "(red dashed = t=55 s)"
     )
     fig.tight_layout()
-    traces_path = DIAG_DIR / "eeg_time_course_first_2min.png"
+    traces_path = diag_dir /"eeg_time_course_first_2min.png"
     fig.savefig(traces_path, dpi=140)
     plt.close(fig)
     print(f"  wrote {traces_path}")
@@ -812,7 +809,11 @@ def main() -> int:
         print("  (none detected)")
 
     # ----- 9. Forensic on BrainAmpSeries first 120 s -----
-    forensic = forensic_brainamp_first_120s(streams)
+    subject = subject_from_xdf(xdf_path)
+    diag_dir = diag_dir_for(subject)
+    print(f"\nOutput subject ID: {subject}")
+    print(f"Diagnostic PNGs will be written to: {diag_dir}")
+    forensic = forensic_brainamp_first_120s(streams, diag_dir)
     hypothesis_panel(forensic)
 
     banner("END OF STEP 1 — review above, then run Step 2")

@@ -87,9 +87,27 @@ class MockVaylBridge:
         return {"version": "1.2.3", "running": True}
 
     def start_ramp(
-        self, start_hz: float, end_hz: float, duration_seconds: float
+        self,
+        start_hz: float,
+        end_hz: float,
+        duration_seconds: float,
+        *,
+        lab_opaque: bool | None = None,
+        checkerboard_enabled: bool | None = None,
+        checker_size: int | None = None,
     ) -> dict:
-        self.start_ramp_calls.append((start_hz, end_hz, duration_seconds))
+        self.start_ramp_calls.append(
+            (
+                start_hz,
+                end_hz,
+                duration_seconds,
+                {
+                    "lab_opaque": lab_opaque,
+                    "checkerboard_enabled": checkerboard_enabled,
+                    "checker_size": checker_size,
+                },
+            )
+        )
         return {
             "status": "ok",
             "params": {
@@ -264,12 +282,19 @@ class TestCarrierToEffectiveFrequencyConversion:
             output_dir=tmp_path,
         )
 
-        # Exactly one start_ramp call with the configured carriers:
-        assert mock_bridge.start_ramp_calls == [(20.0, 0.5, 1.0)]
+        # Exactly one start_ramp call with the configured carriers, plus
+        # the LAP protocol flags passed through from the config defaults.
+        assert len(mock_bridge.start_ramp_calls) == 1
+        carrier_start, carrier_end, duration, kwargs = mock_bridge.start_ramp_calls[0]
+        assert (carrier_start, carrier_end, duration) == (20.0, 0.5, 1.0)
         # Effective SSVEP is documented as 2x carrier:
-        carrier_start, carrier_end, _ = mock_bridge.start_ramp_calls[0]
         assert carrier_start * 2 == 40.0  # effective start SSVEP
         assert carrier_end * 2 == 1.0  # effective end SSVEP
+        # LAP flags arrive with the session-config defaults (all truthy /
+        # non-None) — the task passes them through explicitly.
+        assert kwargs["lab_opaque"] is True
+        assert kwargs["checkerboard_enabled"] is True
+        assert kwargs["checker_size"] == 100
 
 
 class TestVaylConnectivityFailure:

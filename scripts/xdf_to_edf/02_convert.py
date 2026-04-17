@@ -27,14 +27,14 @@ import numpy as np
 import pyedflib
 import pyxdf
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SAMPLE_DIR = REPO_ROOT / "sampledata"
-OUT_DIR = REPO_ROOT / "outputs"
-EDF_PATH = OUT_DIR / "P013_PILOT_01_for_paller.edf"
-LOG_PATH = OUT_DIR / "conversion_log.txt"
-
-# Subject / anon code that goes into the EDF header.
-SUBJECT_CODE = "PILOT_01"
+from _common import (
+    SAMPLE_DIR,
+    edf_path_for,
+    find_xdf as _find_xdf_common,
+    log_path_for,
+    output_dir_for,
+    subject_from_xdf,
+)
 
 # -- From Step 1 forensic: channels rail-saturated > 50 % of samples in
 # the first 120 s. These are flagged but NOT excluded from the EDF —
@@ -132,10 +132,7 @@ def _channel_labels(stream):
 
 
 def _find_xdf():
-    xdfs = sorted(SAMPLE_DIR.glob("*.xdf"))
-    if not xdfs:
-        raise SystemExit(f"No .xdf in {SAMPLE_DIR}")
-    return xdfs[0]
+    return _find_xdf_common()
 
 
 def _align_streams(eeg, cgx, log_lines):
@@ -271,7 +268,14 @@ def _markers_to_annotations(streams, t_start: float) -> list[tuple[float, float,
 
 
 def main() -> int:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    xdf_path = _find_xdf()
+    subject = subject_from_xdf(xdf_path)
+    out_dir = output_dir_for(subject)
+    edf_path = edf_path_for(subject)
+    log_path = log_path_for(subject)
+    print(f"Subject: {subject}")
+    print(f"Output bundle: {out_dir}")
+
     log_lines: list[str] = []
     log_lines.append(f"# Conversion run {datetime.now().isoformat(timespec='seconds')}")
     log_lines.append("")
@@ -294,8 +298,8 @@ def main() -> int:
         "and called out explicitly in the channel manifest.\n"
     )
 
-    xdf_path = _find_xdf()
     log_lines.append(f"SOURCE XDF: {xdf_path}")
+    log_lines.append(f"Subject: {subject}")
     print(f"Loading {xdf_path} …")
     streams, _header = pyxdf.load_xdf(str(xdf_path))
     log_lines.append(f"Streams in file: {len(streams)}")
@@ -404,9 +408,9 @@ def main() -> int:
         )
 
     # ----- Write EDF+ ------
-    print(f"Writing EDF+ with {len(channels)} channels → {EDF_PATH}")
+    print(f"Writing EDF+ with {len(channels)} channels → {edf_path}")
     writer = pyedflib.EdfWriter(
-        str(EDF_PATH), len(channels), file_type=pyedflib.FILETYPE_EDFPLUS
+        str(edf_path), len(channels), file_type=pyedflib.FILETYPE_EDFPLUS
     )
     try:
         # EDF+ strict: no spaces in header fields, ASCII only, and
@@ -418,7 +422,7 @@ def main() -> int:
                 "recording_additional": "P013_pilot_see_manifest",
                 "patientname": "X",
                 "patient_additional": "",
-                "patientcode": SUBJECT_CODE,
+                "patientcode": subject,
                 "equipment": "BrainAmp+CGX_AIM2",
                 "admincode": "",
                 "sex": "",
@@ -464,7 +468,7 @@ def main() -> int:
     log_lines.append("")
     log_lines.append("SPOT-CHECK (10 random samples per channel):")
     rng = np.random.default_rng(42)
-    reader = pyedflib.EdfReader(str(EDF_PATH))
+    reader = pyedflib.EdfReader(str(edf_path))
     try:
         all_pass = True
         for i, ch in enumerate(channels):
@@ -477,15 +481,15 @@ def main() -> int:
             f"\nSpot-check result: {'ALL PASS' if all_pass else 'FAILURES (see above)'}"
         )
         print(f"Spot-check: {'ALL PASS' if all_pass else 'FAILURES'}")
-        print(f"  wrote {EDF_PATH}  ({EDF_PATH.stat().st_size/1e6:.1f} MB)")
+        print(f"  wrote {edf_path}  ({edf_path.stat().st_size/1e6:.1f} MB)")
         print(f"  duration: {reader.file_duration/60:.2f} min")
         print(f"  start date: {reader.getStartdatetime()}")
         print(f"  labels: {reader.getSignalLabels()[:12]} … (+{reader.signals_in_file-12} more)")
     finally:
         reader.close()
 
-    LOG_PATH.write_text("\n".join(log_lines) + "\n")
-    print(f"  conversion log: {LOG_PATH}")
+    log_path.write_text("\n".join(log_lines) + "\n")
+    print(f"  conversion log: {log_path}")
     return 0
 
 

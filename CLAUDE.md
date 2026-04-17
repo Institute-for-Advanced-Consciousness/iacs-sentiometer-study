@@ -658,3 +658,79 @@ cross-referencing is a subtraction.
 
 Use these for per-participant behavioural summaries; use the XDF for
 continuous / time-locked EEG + Sentiometer signals.
+
+### PSG handoff pipeline (XDF → EDF+ + manifest for Paller)
+
+When a sleep session needs to be sent to Dr. Ken Paller's lab for
+scoring, run the full bundle pipeline:
+
+```bash
+# Drop any session XDF into sampledata/ — the newest file wins.
+# BIDS-style "sub-<id>_…" filenames auto-extract the subject ID
+# (e.g. "sub-Sam_…" → Sam); anything else falls back to the first
+# underscore-delimited token of the filename stem ("S001_night2"
+# → "S001"). Use names like Sam / S001 / PILOT_02 — keep it short
+# and alphanumeric.
+
+uv sync --extra dev                     # installs pyxdf + pyedflib + reportlab
+uv run python scripts/xdf_to_edf/run_all.py
+```
+
+That runs four steps in order (each can also be invoked on its own —
+they all autodetect the newest XDF and write to the same bundle):
+
+1. `scripts/xdf_to_edf/01_inspect.py` — read-only stream inventory,
+   cfg/rwksp cross-check, plus a **forensic on the first 120 s of
+   the EEG stream** (timestamp continuity, saturation tally, flat
+   windows, per-channel RMS heatmap, raw-trace PNG, hypothesis
+   panel). This is where we first identified Yaya's rail-saturated
+   peripheral channels.
+2. `scripts/xdf_to_edf/01b_spectral.py` — Welch PSD (4 s / 50 %
+   overlap) on a clean 60 s segment at t=300 s for Cz, Fp1, and the
+   four CGX EXG AASM derivations; 60/120/180 Hz SNR per channel;
+   EXG broadband ratio (30–100 vs 1–30 Hz); CGX impedance snapshot.
+3. `scripts/xdf_to_edf/02_convert.py` — EDF+ write: align EEG +
+   CGX on LSL timestamps, rename CGX ExGa → AASM (E1-M2, E2-M1,
+   ChinZ-Chin1, Chin2-Chin1prime), keep all 64 EEG channels, flag
+   bad ones via the EDF `prefilter` field (`BAD_RAIL_SAT`), write
+   any marker stream as EDF+ annotations, spot-check 10 random
+   samples per channel against the source XDF.
+4. `scripts/xdf_to_edf/03_manifest.py` — ReportLab PDF manifest
+   (quick-answers, data-quality summary with green/yellow/red
+   tally, numbered channel table, AASM scoring workarounds,
+   marker legend, technical notes) + recipient README.
+
+All paths live in `scripts/xdf_to_edf/_common.py` — change
+`find_xdf()` or `subject_from_xdf()` there if the filename
+conventions ever change.
+
+The entire bundle for a session goes under `outputs/<SUBJECT>/` and
+that folder is what gets sent to Paller. `outputs/` is gitignored so
+nothing large or participant-identifying lives in the repo; the
+source XDF in `sampledata/` is also gitignored.
+
+#### Known situational quirks captured in the bundle
+
+- The CGX AIM-2 ExGa 1–4 ports carry **bipolar PSG derivations**
+  in the P013 montage: EOG-L vs right mastoid, EOG-R vs left
+  mastoid, chin-midline vs chin-upper, chin-lateral-R vs
+  chin-lateral-L. The AASM scoring software receives these pre-
+  referenced and they are immune to BrainVision cap-side
+  electrode failure.
+- The BrainVision cap's `TP9` / `TP10` are what we'd *normally*
+  use as M1/M2 proxies for monopolar EEG derivations. If the
+  Step 1 forensic flags them as rail-saturated, Section 4 of
+  the manifest gives three workaround derivations (monopolar
+  to FCz, common-average, contralateral homologs).
+- CGX non-EEG channels (SpO2 / HR / GSR / Temp / Resp / PPG)
+  come through LSL with their unit declared as `microvolts` even
+  though the values are device-internal scaling. The converter
+  preserves the raw values and the manifest flags the caveat.
+- EDF+ 8-character `physical_min/max` fields overflow on the
+  CGX non-EEG channels with large internal scaling; they're
+  clamped to ±8,388,608 and the clip is documented in
+  `conversion_log.txt`. Sleep scoring doesn't use absolute
+  magnitudes on these channels so the clip is harmless.
+- Unique `subject` ID per run — drop the next session's XDF in
+  `sampledata/` and re-run `run_all.py`. Previous bundles stay
+  untouched in their own folders.

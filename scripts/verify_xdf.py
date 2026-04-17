@@ -408,15 +408,30 @@ def _check_vayl_streams(
         )
 
     if vayl_freq is None:
-        report.fail(
-            "Task 05 — Vayl",
-            "VaylStim_Freq stream",
-            "continuous Hz stream not recorded — cannot recover frequency-at-time",
-        )
-        report.suggest(
-            "VaylStim_Freq is missing — tick it in LabRecorder next to VaylStim. "
-            "Without it, EEG analysis cannot map effective-Hz onto each sample."
-        )
+        # VaylStim_Freq is optional now — the default P013 config sets
+        # `vayl_emit_frequency_stream: false` and we reconstruct freq
+        # analytically from the `ramp_start` JSON payload (stimFreqHz,
+        # stimFreqEndHz, durationSeconds). Only treat it as a FAIL if
+        # NO Vayl ramp_start event ever made it onto P013_Task_Markers,
+        # which means we have no way to reconstruct freq either.
+        if any(e.get("event") == "ramp_start" for e in events):
+            report.ok(
+                "Task 05 — Vayl",
+                "VaylStim_Freq stream",
+                "absent (expected — freq reconstructable from ramp_start JSON)",
+            )
+        else:
+            report.fail(
+                "Task 05 — Vayl",
+                "VaylStim_Freq stream",
+                "continuous Hz stream absent AND no ramp_start event — "
+                "no way to recover frequency-at-time",
+            )
+            report.suggest(
+                "No Vayl ramp_start event on P013_Task_Markers and no "
+                "VaylStim_Freq stream — Task 05 either didn't run or the "
+                "bridge failed to push markers. Re-check before handoff."
+            )
         return
 
     freq_ts = _timestamps(vayl_freq)

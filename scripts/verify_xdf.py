@@ -611,11 +611,18 @@ def _render(path: Path, report: VerificationReport) -> int:
     return 0 if n_fail == 0 else 1
 
 
-def verify(path: Path) -> VerificationReport:
-    """Load *path* and run every check. Returns the populated report."""
+def verify(
+    path: Path, streams: list[dict] | None = None, header: dict | None = None
+) -> VerificationReport:
+    """Load *path* and run every check. Returns the populated report.
+
+    If *streams* and *header* are provided (e.g. by a caller that already
+    parsed the XDF), they're reused instead of re-parsing the file.
+    """
     report = VerificationReport()
 
-    streams, header = pyxdf.load_xdf(str(path))
+    if streams is None or header is None:
+        streams, header = pyxdf.load_xdf(str(path))
     report.ok(
         "File",
         "pyxdf.load_xdf",
@@ -667,6 +674,16 @@ def main(argv: list[str] | None = None) -> int:
         nargs="?",
         help="Path to .xdf (defaults to the single .xdf in sampledata/)",
     )
+    parser.add_argument(
+        "--no-timeline",
+        action="store_true",
+        help="Skip the chronological marker timeline at the bottom.",
+    )
+    parser.add_argument(
+        "--timeline-summary-only",
+        action="store_true",
+        help="Show only the phase summary, not the per-marker rows.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -675,8 +692,32 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
-    report = verify(xdf_path)
-    return _render(xdf_path, report)
+    # Parse the XDF once and share it between the verifier and timeline.
+    streams, header = pyxdf.load_xdf(str(xdf_path))
+    report = verify(xdf_path, streams=streams, header=header)
+    exit_code = _render(xdf_path, report)
+
+    if not args.no_timeline:
+        # Late import so verify_xdf.py remains usable even if
+        # timeline_xdf.py is removed / renamed in the future.
+        from timeline_xdf import render_timeline  # noqa: PLC0415
+
+        console = Console()
+        console.print()
+        console.print(
+            Panel(
+                f"[bold cyan]Session timeline (Pacific)[/bold cyan]\n{xdf_path}",
+                expand=False,
+            )
+        )
+        render_timeline(
+            streams,
+            xdf_path,
+            console=console,
+            show_details=not args.timeline_summary_only,
+        )
+
+    return exit_code
 
 
 if __name__ == "__main__":

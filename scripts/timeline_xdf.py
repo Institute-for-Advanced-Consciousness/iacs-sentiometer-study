@@ -115,28 +115,28 @@ def _pretty_marker(marker: str) -> str:
     return " ".join(parts)
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("path", nargs="?")
-    parser.add_argument(
-        "--no-details",
-        action="store_true",
-        help="Hide the per-marker rows; print only phase summaries.",
-    )
-    args = parser.parse_args(argv)
+def _fmt_pt(dt: datetime) -> str:
+    """12-hour PT wall clock with milliseconds (e.g. "06:57:08.680 PM")."""
+    return f"{dt.strftime('%I:%M:%S.%f')[:-3]} {dt.strftime('%p')}"
 
-    try:
-        xdf_path = _find_xdf(args.path)
-    except SystemExit as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
 
-    console = Console()
-    console.print(
-        Panel(f"[bold cyan]XDF timeline[/bold cyan]\n{xdf_path}", expand=False)
-    )
+def render_timeline(
+    streams: list[dict],
+    xdf_path: Path,
+    console: Console | None = None,
+    show_details: bool = True,
+) -> int:
+    """Render the timeline tables to *console*.
 
-    streams, _ = pyxdf.load_xdf(str(xdf_path))
+    Accepts already-loaded streams (as returned by ``pyxdf.load_xdf``) so
+    it can be called from verify_xdf.py without re-parsing the XDF.
+
+    Returns an int exit code — 0 on success, 1 if no marker stream is
+    found in the file.
+    """
+    if console is None:
+        console = Console()
+
     marker_stream = _marker_stream(streams)
     if marker_stream is None:
         console.print("[red]No P013_Task_Markers stream in file.[/red]")
@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     ts_raw = marker_stream.get("time_stamps")
     ts = np.asarray(ts_raw if ts_raw is not None else [], dtype=float)
     if len(samples) == 0:
-        console.print("[yellow]P013_Task_Markers is empty.[/yellow]")
+        console.print("[yellow]P013_Task_Markers is empty — nothing to timeline.[/yellow]")
         return 0
 
     markers = [
@@ -162,7 +162,9 @@ def main(argv: list[str] | None = None) -> int:
     lsl_min = float(ts.min())
     lsl_max = float(ts.max())
     duration_s = lsl_max - lsl_min
-    file_utc = datetime.fromtimestamp(os.path.getmtime(xdf_path), tz=timezone.utc)
+    file_utc = datetime.fromtimestamp(
+        os.path.getmtime(xdf_path), tz=timezone.utc
+    )
     session_start_utc = file_utc - timedelta(seconds=duration_s)
     session_start_pt = session_start_utc.astimezone(PT)
 
@@ -170,7 +172,9 @@ def main(argv: list[str] | None = None) -> int:
     phases: dict[str, dict] = {}
     for m, t in zip(markers, ts):
         phase = _phase_for(m)
-        first_last = phases.setdefault(phase, {"count": 0, "first": t, "last": t})
+        first_last = phases.setdefault(
+            phase, {"count": 0, "first": t, "last": t}
+        )
         first_last["count"] += 1
         first_last["first"] = min(first_last["first"], t)
         first_last["last"] = max(first_last["last"], t)
@@ -205,14 +209,14 @@ def main(argv: list[str] | None = None) -> int:
         summary.add_row(
             f"[{style}]{name}[/{style}]",
             str(info["count"]),
-            first_wall.strftime("%H:%M:%S.%f")[:-3],
+            _fmt_pt(first_wall),
             f"{elapsed_to_first:+.3f}",
             f"{span:.1f}",
         )
     console.print(summary)
     console.print()
 
-    if args.no_details:
+    if not show_details:
         return 0
 
     # ----- full chronological listing -----------------------------------
@@ -231,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
         phase = _phase_for(m)
         style = TASK_STYLE.get(phase, "white")
         detail.add_row(
-            wall.strftime("%H:%M:%S.%f")[:-3],
+            _fmt_pt(wall),
             f"{t - lsl_min:7.3f}",
             f"[{style}]{phase}[/{style}]",
             _pretty_marker(m),
@@ -239,6 +243,36 @@ def main(argv: list[str] | None = None) -> int:
 
     console.print(detail)
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("path", nargs="?")
+    parser.add_argument(
+        "--no-details",
+        action="store_true",
+        help="Hide the per-marker rows; print only phase summaries.",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        xdf_path = _find_xdf(args.path)
+    except SystemExit as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    console = Console()
+    console.print(
+        Panel(f"[bold cyan]XDF timeline[/bold cyan]\n{xdf_path}", expand=False)
+    )
+
+    streams, _ = pyxdf.load_xdf(str(xdf_path))
+    return render_timeline(
+        streams,
+        xdf_path,
+        console=console,
+        show_details=not args.no_details,
+    )
 
 
 if __name__ == "__main__":

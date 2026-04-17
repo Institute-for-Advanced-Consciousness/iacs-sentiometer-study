@@ -436,8 +436,11 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'emscripten' or sys_platform == 'win32'" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "pyxdf" },
     { name = "ruff" },
 ]
 tasks = [
@@ -456,6 +459,7 @@ tasks = [
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
+    { name = "numpy", marker = "extra == 'dev'", specifier = ">=1.26" },
     { name = "numpy", marker = "extra == 'tasks'", specifier = ">=1.26" },
     { name = "pandas", marker = "extra == 'tasks'", specifier = ">=2.2" },
     { name = "psychopy", marker = "extra == 'tasks'", specifier = ">=2024.1" },
@@ -465,6 +469,7 @@ requires-dist = [
     { name = "pyserial", specifier = ">=3.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
+    { name = "pyxdf", marker = "extra == 'dev'", specifier = ">=1.16" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
@@ -3757,6 +3762,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ce/d1/6dcf4a17f425a5e3e2c011bac622dacae3128e96fd038b3e6f56c0e7a032/pyWinhook-1.6.2.zip", hash = "sha256:18fe2f63245d8a2f9d83f8d9c385e3695a6363badd50d492eb3e7f6f06a01c0c", size = 15791, upload-time = "2020-01-17T22:00:09.328Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/65/0f/03ebec3eb79a06b130b6ec165ba263e72c2e15aa406c2ed49fe4d07a37e5/pyWinhook-1.6.2-cp311-cp311-win_amd64.whl", hash = "sha256:c478bf3142ab63cc0fac83250228269113f25b06f2a9142e5772fbb9429d67b8", size = 29950, upload-time = "2023-04-16T17:54:12.673Z" },
+]
+
+[[package]]
+name = "pyxdf"
+version = "1.17.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'emscripten' or sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1c/26/91fcfff3085de235a12cbfab5b1b4c846265c6abe97a812e3c5d8ef5d79f/pyxdf-1.17.4.tar.gz", hash = "sha256:374e3e306a5277d0ee9e2482adcb2211e6e059758ff3afcf56f3919245dae2ac", size = 35479, upload-time = "2026-03-25T16:23:05.187Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/2c/a4d013d70e71728b240a3e5b4e7f5c695df9096f3a154c1693f33bdb7cff/pyxdf-1.17.4-py3-none-any.whl", hash = "sha256:812118f590a87afe574171e901ddffd1304a5c1a27e2892cba420bef2f5803c1", size = 21602, upload-time = "2026-03-25T16:23:03.659Z" },
 ]
 
 [[package]]

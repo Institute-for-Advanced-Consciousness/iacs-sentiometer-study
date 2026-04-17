@@ -83,6 +83,16 @@ class TaskIO:
     play_gong: Callable[[], None]
     """Play the meditation start/end gong (blocking or async is acceptable)."""
 
+    play_instructions_audio: Callable[[float], None]
+    """Play the meditation-instructions audio (mp3) at *speed* multiplier.
+
+    speed = 1.0 plays at native rate (production). speed = 3.0 is used in
+    demo mode — implemented by taking every 3rd PCM sample (simple
+    rate-change with pitch-shift, which is fine for RA dry runs). The
+    call blocks until playback finishes and keeps the pygame event
+    queue pumping so Escape still works.
+    """
+
     tick: Callable[[int], float]
     """Advance the game-loop frame clock; return seconds since the last tick."""
 
@@ -99,7 +109,11 @@ class TaskIO:
     """Sleep for *seconds*."""
 
 
-def _build_pygame_io(demo: bool, gong_path: Path) -> tuple[TaskIO, Callable[[], None]]:
+def _build_pygame_io(
+    demo: bool,
+    gong_path: Path,
+    instructions_audio_path: Path | None = None,
+) -> tuple[TaskIO, Callable[[], None]]:
     """Construct a real Pygame-backed ``TaskIO``.
 
     Imports Pygame lazily so this module is importable on dev machines
@@ -126,6 +140,29 @@ def _build_pygame_io(demo: bool, gong_path: Path) -> tuple[TaskIO, Callable[[], 
     except Exception:
         gong_sound = None
         log.warning("Could not load gong at %s; meditation will be silent", gong_path)
+
+    # Pre-load the meditation instructions audio. Decode now so the RA
+    # doesn't hit a loading delay between the instructions text and the
+    # audio playback. In demo mode we also precompute the 3x-speed
+    # buffer so there's no delay when it's needed.
+    instructions_sound = None
+    instructions_sound_fast = None
+    if instructions_audio_path is not None and instructions_audio_path.exists():
+        try:
+            instructions_sound = pygame.mixer.Sound(str(instructions_audio_path))
+            if demo:
+                import numpy as np  # noqa: PLC0415
+
+                arr = pygame.sndarray.array(instructions_sound)
+                if arr.size > 0:
+                    fast_arr = np.ascontiguousarray(arr[::3])
+                    instructions_sound_fast = pygame.sndarray.make_sound(fast_arr)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "Could not load meditation instructions audio at %s: %s "
+                "(the block will proceed in silence)",
+                instructions_audio_path, exc,
+            )
 
     space_held_state = {"held": False, "pressed_this_frame": False, "released_this_frame": False}
     escape_state = {"pressed": False}
@@ -195,6 +232,42 @@ def _build_pygame_io(demo: bool, gong_path: Path) -> tuple[TaskIO, Callable[[], 
     def play_gong() -> None:
         if gong_sound is not None:
             gong_sound.play()
+
+    def play_instructions_audio(speed: float = 1.0) -> None:
+        """Play the meditation-instructions mp3 and block until it ends.
+
+        speed is honoured via pre-computed buffers (1.0 or 3.0). Any other
+        value falls back to a runtime resample. If the file isn't loaded
+        (missing / unreadable / no mp3 codec) the call is a no-op with a
+        logged warning so the block still proceeds.
+        """
+        sound = instructions_sound
+        if speed == 3.0 and instructions_sound_fast is not None:
+            sound = instructions_sound_fast
+        elif speed != 1.0 and instructions_sound is not None:
+            # Arbitrary speed — resample now. Takes ~10 ms for a 3 min mp3.
+            import numpy as np  # noqa: PLC0415
+
+            arr = pygame.sndarray.array(instructions_sound)
+            n = max(1, int(round(speed)))
+            sound = pygame.sndarray.make_sound(np.ascontiguousarray(arr[::n]))
+        if sound is None:
+            log.warning(
+                "meditation instructions audio unavailable; skipping playback"
+            )
+            return
+        channel = sound.play()
+        if channel is None:
+            return
+        # Block until playback finishes, but keep the pygame event queue
+        # pumping so Escape still interrupts cleanly.
+        while channel.get_busy():
+            _poll_events()
+            if escape_state["pressed"]:
+                channel.stop()
+                from tasks.common.display import EscapePressedError  # noqa: PLC0415
+                raise EscapePressedError
+            pygame.time.wait(50)
 
     def tick(fps: int) -> float:
         _poll_events()
@@ -308,6 +381,7 @@ def _build_pygame_io(demo: bool, gong_path: Path) -> tuple[TaskIO, Callable[[], 
         show_break_frame=show_break_frame,
         show_black_screen=show_black_screen,
         play_gong=play_gong,
+        play_instructions_audio=play_instructions_audio,
         tick=tick,
         get_input_state=get_input_state,
         draw_game_frame=draw_game_frame,
@@ -414,7 +488,15 @@ def run(
     cleanup: Callable[[], None] = lambda: None  # noqa: E731
     if io is None:
         gong_path = REPO_ROOT / config["gong_file"]
-        io, cleanup = _build_pygame_io(demo=demo, gong_path=gong_path)
+        instructions_audio = config.get("meditation_instructions_audio")
+        instructions_audio_path = (
+            REPO_ROOT / instructions_audio if instructions_audio else None
+        )
+        io, cleanup = _build_pygame_io(
+            demo=demo,
+            gong_path=gong_path,
+            instructions_audio_path=instructions_audio_path,
+        )
 
     rng = random.Random(rng_seed)
     all_entries: list[dict] = []
@@ -454,10 +536,14 @@ def run(
         all_entries.extend(break_entries)
 
         # ----- Block 2: Meditation -----
+        # Demo mode plays the intro audio at 3x speed (pitch-shifted, which
+        # is fine for a dry run) so RAs can walk through the full flow in
+        # ~1 min instead of ~3 min.
         meditation_entries = meditation_mod.run_meditation_block(
             outlet=outlet,
             io=io,
             duration_s=float(config["meditation_duration_s"]),
+            audio_speed=3.0 if demo else 1.0,
         )
         all_entries.extend(meditation_entries)
 

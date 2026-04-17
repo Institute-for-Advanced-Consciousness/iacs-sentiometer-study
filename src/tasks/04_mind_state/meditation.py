@@ -1,21 +1,35 @@
-"""Task 04 meditation block: instructions -> gong -> silent timer -> gong.
+"""Task 04 meditation block: short instructions -> audio -> gong -> silence -> gong.
 
 The block has no visual content during the meditation itself (the screen is
-black while the participant's eyes are closed). Two gong strikes bracket the
-silent period: one at the start (immediately after the participant presses
-spacebar to begin), one at the end (after ``duration_s`` has elapsed).
+black while the participant's eyes are closed).
 
-Markers emitted:
+Flow:
 
-* ``task04_meditation_instructions_start`` / ``_end``
-* ``task04_meditation_gong_start``
-* ``task04_meditation_start``
-* ``task04_meditation_gong_end``
-* ``task04_meditation_end`` (after the participant presses spacebar to
-  acknowledge the completion screen)
+1. Short text telling the participant the next block is a meditation and
+   to press spacebar + close their eyes.
+2. Screen goes black. A pre-recorded meditation-instructions audio
+   (``assets/sounds/meditation_instructions.mp3``) plays. The block waits
+   for the audio to finish.
+3. First gong rings.
+4. Silent ``duration_s`` timer (default 6 min between gongs).
+5. Second gong rings.
+6. Completion screen — participant opens eyes and presses spacebar.
 
-Like :mod:`game`, this module never touches Pygame directly -- it delegates
-every side effect to a ``TaskIO`` so it can run headlessly in tests.
+Markers emitted (in order):
+
+* ``task04_meditation_instructions_start``  — text shown
+* ``task04_meditation_instructions_end``    — participant pressed space,
+  text dismissed
+* ``task04_meditation_audio_start``         — mp3 begins
+* ``task04_meditation_audio_end``           — mp3 finishes
+* ``task04_meditation_gong_start``          — first gong
+* ``task04_meditation_start``               — silent timer begins
+* ``task04_meditation_gong_end``            — second gong
+* ``task04_meditation_end``                 — completion screen dismissed
+
+Like :mod:`game`, this module never touches Pygame directly -- it
+delegates every side effect to a ``TaskIO`` so it can run headlessly in
+tests.
 """
 
 from __future__ import annotations
@@ -25,12 +39,10 @@ from pylsl import StreamOutlet, local_clock
 from tasks.common.lsl_markers import send_marker
 
 MEDITATION_INSTRUCTIONS_TEXT = (
-    "Close your eyes. Focus your attention on the sensation of your breath "
-    "at the nostrils. When you feel settled, begin scanning through your "
-    "body from head to toe. If you notice your mind wandering, gently return "
-    "your attention to the breath.\n\n"
-    "When you are ready, press spacebar. You will hear a gong, and the "
-    "meditation will begin."
+    "The next block is a short meditation.\n\n"
+    "When you are ready, press spacebar and close your eyes.\n"
+    "A recorded guide will walk you through the practice, and the "
+    "meditation will start when you hear the first gong."
 )
 
 MEDITATION_COMPLETE_TEXT = (
@@ -43,68 +55,71 @@ def run_meditation_block(
     outlet: StreamOutlet,
     io,
     duration_s: float,
+    audio_speed: float = 1.0,
 ) -> list[dict]:
     """Run the meditation block end-to-end.
 
-    Emits the six meditation markers in order and returns a list of phase
-    events timestamped with ``local_clock()`` for the behavioral log.
+    Parameters
+    ----------
+    outlet:
+        Shared P013 marker outlet.
+    io:
+        Pygame-backed :class:`TaskIO` (or a mock in tests). Must provide
+        ``show_text_and_wait``, ``show_black_screen``, ``play_gong``,
+        ``play_instructions_audio``, and ``wait``.
+    duration_s:
+        Silence between the two gongs, in seconds. Default config is
+        360 s (6 min).
+    audio_speed:
+        Multiplier for the meditation-instructions mp3 playback rate.
+        1.0 = native; 3.0 = demo fast-forward. Passed straight to
+        ``io.play_instructions_audio``.
+
+    Returns the behavioural-log entries (one dict per phase boundary).
     """
     log: list[dict] = []
 
-    # ----- Instructions -----
+    def _mark(kind: str, **extra) -> None:
+        log.append(
+            {
+                "timestamp": local_clock(),
+                "phase": "meditation",
+                "type": kind,
+                **extra,
+            }
+        )
+
+    # ----- 1. Short instructions text -----
     send_marker(outlet, "task04_meditation_instructions_start")
-    log.append(
-        {
-            "timestamp": local_clock(),
-            "phase": "meditation",
-            "type": "instructions_start",
-        }
-    )
+    _mark("instructions_start")
     io.show_text_and_wait(MEDITATION_INSTRUCTIONS_TEXT, "space")
     send_marker(outlet, "task04_meditation_instructions_end")
-    log.append(
-        {
-            "timestamp": local_clock(),
-            "phase": "meditation",
-            "type": "instructions_end",
-        }
-    )
+    _mark("instructions_end")
 
-    # ----- Start gong + silent timer -----
+    # ----- 2. Guided-meditation audio over a black screen -----
     io.show_black_screen()
+    send_marker(outlet, "task04_meditation_audio_start")
+    _mark("audio_start", audio_speed=audio_speed)
+    io.play_instructions_audio(audio_speed)
+    send_marker(outlet, "task04_meditation_audio_end")
+    _mark("audio_end")
+
+    # ----- 3. First gong + silent timer -----
     io.play_gong()
     send_marker(outlet, "task04_meditation_gong_start")
     send_marker(outlet, "task04_meditation_start")
-    log.append(
-        {
-            "timestamp": local_clock(),
-            "phase": "meditation",
-            "type": "start",
-            "duration_s": duration_s,
-        }
-    )
+    _mark("start", duration_s=duration_s)
 
     io.wait(duration_s)
 
-    # ----- End gong + completion screen -----
+    # ----- 4. Second gong -----
     io.play_gong()
     send_marker(outlet, "task04_meditation_gong_end")
-    log.append(
-        {
-            "timestamp": local_clock(),
-            "phase": "meditation",
-            "type": "gong_end",
-        }
-    )
+    _mark("gong_end")
 
+    # ----- 5. Completion screen -----
     io.show_text_and_wait(MEDITATION_COMPLETE_TEXT, "space")
     send_marker(outlet, "task04_meditation_end")
-    log.append(
-        {
-            "timestamp": local_clock(),
-            "phase": "meditation",
-            "type": "end",
-        }
-    )
+    _mark("end")
 
     return log

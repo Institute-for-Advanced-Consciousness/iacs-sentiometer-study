@@ -47,6 +47,7 @@ class MockTaskIO:
         self.break_frames: list[int] = []
         self.black_screens = 0
         self.waits: list[float] = []
+        self.instructions_audio_calls: list[float] = []
 
     def tick(self, fps: int) -> float:
         self.tick_count += 1
@@ -78,6 +79,9 @@ class MockTaskIO:
 
     def play_gong(self) -> None:
         self.gong_calls += 1
+
+    def play_instructions_audio(self, speed: float = 1.0) -> None:
+        self.instructions_audio_calls.append(speed)
 
     def check_escape(self) -> None:
         return None
@@ -255,7 +259,7 @@ class TestRunGameBlock:
 
 
 class TestRunMeditationBlock:
-    def test_emits_all_six_markers_in_order(self, captured_marker_outlet):
+    def test_emits_all_markers_in_order(self, captured_marker_outlet):
         outlet, inlet = captured_marker_outlet
         mock_io = MockTaskIO()
         meditation_mod.run_meditation_block(outlet, mock_io, duration_s=0.1)
@@ -264,6 +268,8 @@ class TestRunMeditationBlock:
         expected = [
             "task04_meditation_instructions_start",
             "task04_meditation_instructions_end",
+            "task04_meditation_audio_start",
+            "task04_meditation_audio_end",
             "task04_meditation_gong_start",
             "task04_meditation_start",
             "task04_meditation_gong_end",
@@ -274,6 +280,9 @@ class TestRunMeditationBlock:
         # Ordering
         indices = [markers.index(m) for m in expected]
         assert indices == sorted(indices)
+
+        # Guided-meditation audio played exactly once at native speed.
+        assert mock_io.instructions_audio_calls == [1.0]
 
         # Two gongs: start and end
         assert mock_io.gong_calls == 2
@@ -390,12 +399,15 @@ class TestFullOrchestrator:
             # Meditation
             "task04_meditation_instructions_start",
             "task04_meditation_instructions_end",
+            "task04_meditation_audio_start",
+            "task04_meditation_audio_end",
             "task04_meditation_gong_start",
             "task04_meditation_start",
             "task04_meditation_gong_end",
             "task04_meditation_end",
         }
-        assert len(expected) == 19  # sanity: 19 distinct markers per spec
+        # 21 distinct markers with the new audio_start/audio_end pair.
+        assert len(expected) == 21
         missing = expected - marker_set
         assert not missing, f"Missing marker types: {sorted(missing)}"
 

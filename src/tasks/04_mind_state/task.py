@@ -186,16 +186,47 @@ def _build_pygame_io(
             elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
                 escape_state["pressed"] = True
 
+    def _wrap_text(text: str, font: "pygame.font.Font", max_width_px: int) -> list[str]:
+        """Word-wrap *text* to fit within *max_width_px* using *font*.
+
+        Preserves explicit newlines as paragraph breaks so the caller can
+        keep double-newlines between paragraphs. Each output line is
+        ≤ max_width_px when rendered with *font*.
+        """
+        out: list[str] = []
+        for paragraph in text.split("\n"):
+            if not paragraph.strip():
+                out.append("")
+                continue
+            current: list[str] = []
+            for word in paragraph.split():
+                trial = (" ".join(current + [word])).strip()
+                if font.size(trial)[0] <= max_width_px or not current:
+                    current.append(word)
+                else:
+                    out.append(" ".join(current))
+                    current = [word]
+            if current:
+                out.append(" ".join(current))
+        return out
+
     def show_text_and_wait(text: str, wait_key: str) -> None:
+        # Wrap to 80% of the screen so long lines never spill off the
+        # edges, and centre the block vertically based on its actual
+        # height rather than a fixed offset.
+        max_w = int(0.8 * game_mod.SCREEN_W)
         waiting = True
         while waiting:
             screen.fill((40, 40, 40))
-            y = game_mod.SCREEN_H // 2 - 200
-            for line in text.split("\n"):
+            lines = _wrap_text(text, font_big, max_w)
+            line_h = font_big.get_linesize()
+            total_h = line_h * len(lines)
+            y = (game_mod.SCREEN_H - total_h) // 2
+            for line in lines:
                 surf = font_big.render(line, True, (230, 230, 230))
                 rect = surf.get_rect(center=(game_mod.SCREEN_W // 2, y))
                 screen.blit(surf, rect)
-                y += 56
+                y += line_h
             pygame.display.flip()
             for ev in pygame.event.get():
                 if ev.type == pygame.KEYDOWN:
@@ -209,18 +240,12 @@ def _build_pygame_io(
                         raise EscapePressedError
             clock.tick(30)
 
-    def show_break_frame(remaining_seconds: int) -> None:
+    # The break used to show a per-second countdown here. We removed
+    # that in favour of a single "press space when ready" screen driven
+    # by `show_text_and_wait`, so show_break_frame is a no-op kept only
+    # so existing code holding a TaskIO reference doesn't blow up.
+    def show_break_frame(remaining_seconds: int) -> None:  # noqa: ARG001
         screen.fill((50, 50, 50))
-        text = (
-            "Take a moment to relax and stretch.\n"
-            f"The meditation will begin in {remaining_seconds} seconds."
-        )
-        y = game_mod.SCREEN_H // 2 - 60
-        for line in text.split("\n"):
-            surf = font_big.render(line, True, (220, 220, 220))
-            rect = surf.get_rect(center=(game_mod.SCREEN_W // 2, y))
-            screen.blit(surf, rect)
-            y += 56
         pygame.display.flip()
         pygame.event.pump()
 
@@ -396,15 +421,29 @@ def _build_pygame_io(
 # ----- Break runner ----------------------------------------------------------
 
 
+BREAK_TEXT = (
+    "The game block is complete.\n\n"
+    "When you are ready for the meditation portion, press the spacebar. "
+    "Close your eyes immediately after pressing the spacebar — a recorded "
+    "guide will begin shortly."
+)
+
+
 def _run_break(outlet: StreamOutlet, io: TaskIO, duration_s: int) -> list[dict]:
+    """Bridge from the game block to the meditation block.
+
+    The old implementation ran a per-second countdown display (duration_s
+    seconds). The new flow is a single "press spacebar when ready" prompt
+    so participants can take as long as they need to settle before the
+    meditation starts. *duration_s* is kept as a parameter for
+    signature-compat but is no longer consulted.
+    """
+    _ = duration_s  # retained for signature compatibility
     send_marker(outlet, "task04_break_start")
     log_entries: list[dict] = [
         {"timestamp": local_clock(), "phase": "break", "type": "break_start"}
     ]
-    for remaining in range(int(duration_s), 0, -1):
-        io.check_escape()
-        io.show_break_frame(remaining)
-        io.wait(1.0)
+    io.show_text_and_wait(BREAK_TEXT, "space")
     send_marker(outlet, "task04_break_end")
     log_entries.append(
         {"timestamp": local_clock(), "phase": "break", "type": "break_end"}

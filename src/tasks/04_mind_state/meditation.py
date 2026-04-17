@@ -39,10 +39,10 @@ from pylsl import StreamOutlet, local_clock
 from tasks.common.lsl_markers import send_marker
 
 MEDITATION_INSTRUCTIONS_TEXT = (
-    "The next block is a short meditation.\n\n"
-    "When you are ready, press spacebar and close your eyes.\n"
-    "A recorded guide will walk you through the practice, and the "
-    "meditation will start when you hear the first gong."
+    "A recorded guide will begin momentarily. Keep your eyes closed "
+    "and follow the voice. The silent meditation begins when you "
+    "hear the first gong and ends at the second gong.\n\n"
+    "Press spacebar to begin and close your eyes immediately after."
 )
 
 MEDITATION_COMPLETE_TEXT = (

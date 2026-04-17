@@ -429,10 +429,12 @@ class TestFullOrchestrator:
         assert mock_io.gong_calls == 2
         # Black screen shown once (during meditation)
         assert mock_io.black_screens == 1
-        # Break showed per-second countdown frames
-        assert len(mock_io.break_frames) == small_config["break_duration_s"]
-        assert mock_io.break_frames[0] == small_config["break_duration_s"]
-        assert mock_io.break_frames[-1] == 1
+        # Break is now a single "press space when ready" screen, not a
+        # per-second countdown. The mock's show_text_and_wait records
+        # the shown_texts, so we assert the break text appeared there.
+        assert any("spacebar" in t.lower() for t in mock_io.shown_texts), (
+            "expected the break prompt to be shown via show_text_and_wait"
+        )
 
         # Behavioral log exists and has the expected column schema
         assert log_path.exists()

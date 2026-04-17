@@ -302,16 +302,40 @@ def _build_pygame_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
     font = pygame.font.SysFont(None, 48)
     clock = pygame.time.Clock()
 
+    def _wrap(text: str, font_obj, max_width_px: int) -> list[str]:
+        out: list[str] = []
+        for paragraph in text.split("\n"):
+            if not paragraph.strip():
+                out.append("")
+                continue
+            current: list[str] = []
+            for word in paragraph.split():
+                trial = (" ".join(current + [word])).strip()
+                if font_obj.size(trial)[0] <= max_width_px or not current:
+                    current.append(word)
+                else:
+                    out.append(" ".join(current))
+                    current = [word]
+            if current:
+                out.append(" ".join(current))
+        return out
+
     def show_text_and_wait(text: str, wait_key: str) -> None:
+        # Wrap to 80 % of the screen, vertically centre based on the
+        # actual rendered block height so no lines spill off-screen.
+        max_w = int(0.8 * surf_w)
         waiting = True
         while waiting:
             screen.fill((40, 40, 40))
-            y = surf_h // 2 - 200
-            for line in text.split("\n"):
+            lines = _wrap(text, font, max_w)
+            line_h = font.get_linesize()
+            total_h = line_h * len(lines)
+            y = (surf_h - total_h) // 2
+            for line in lines:
                 surf = font.render(line, True, (230, 230, 230))
                 rect = surf.get_rect(center=(surf_w // 2, y))
                 screen.blit(surf, rect)
-                y += 56
+                y += line_h
             pygame.display.flip()
             for ev in pygame.event.get():
                 if ev.type == pygame.KEYDOWN:

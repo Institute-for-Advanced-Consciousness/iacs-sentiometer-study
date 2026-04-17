@@ -709,16 +709,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Show only the phase summary, not the per-marker rows.",
     )
     parser.add_argument(
-        "--save",
-        nargs="?",
-        const="__auto__",
+        "--save-path",
+        type=str,
         default=None,
         metavar="PATH",
         help=(
-            "Save the full verifier + timeline output to a text file in "
-            "addition to printing it. With no argument, defaults to "
-            "<xdf_stem>_verify_output.txt next to the XDF."
+            "Override the auto-save location. By default the full "
+            "verifier + timeline output is saved next to the XDF at "
+            "<xdf_stem>_verify_output.txt."
         ),
+    )
+    parser.add_argument(
+        "--no-save",
+        action="store_true",
+        help="Disable the default auto-save — print to terminal only.",
     )
     args = parser.parse_args(argv)
 
@@ -732,9 +736,10 @@ def main(argv: list[str] | None = None) -> int:
     streams, header = pyxdf.load_xdf(str(xdf_path))
     report = verify(xdf_path, streams=streams, header=header)
 
-    # Single recording console so --save captures the whole report plus
-    # the timeline in one file.
-    console = Console(record=bool(args.save))
+    # Recording console so the default auto-save captures the whole
+    # report plus the timeline in one file. --no-save opts out.
+    save_enabled = not args.no_save
+    console = Console(record=save_enabled)
     exit_code = _render(xdf_path, report, console=console)
 
     if not args.no_timeline:
@@ -756,11 +761,11 @@ def main(argv: list[str] | None = None) -> int:
             show_details=not args.timeline_summary_only,
         )
 
-    if args.save:
-        if args.save == "__auto__":
-            save_path = xdf_path.parent / f"{xdf_path.stem}_verify_output.txt"
+    if save_enabled:
+        if args.save_path:
+            save_path = Path(args.save_path).expanduser()
         else:
-            save_path = Path(args.save).expanduser()
+            save_path = xdf_path.parent / f"{xdf_path.stem}_verify_output.txt"
         save_path.parent.mkdir(parents=True, exist_ok=True)
         save_path.write_text(console.export_text(clear=False))
         # Echo location at the bottom of the terminal output.

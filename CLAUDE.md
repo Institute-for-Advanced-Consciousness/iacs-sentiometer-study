@@ -513,3 +513,148 @@ Note: The KDEF neutral faces and procedurally-generated Mondrian masks for Task 
 - **Expert Advisor / Sleep Scoring**: Prof. Ken Paller (Northwestern)
 - **On-Call MD**: Dr. Alexander Bystritsky
 - **Sponsor**: Senzient, Inc.
+
+---
+
+## Data Analysis (reading this back when you have XDFs)
+
+If you're returning to this project to analyse recorded sessions, the code
+for *running* a session has done its job — every paradigm's stimulus + timing
+is captured in `P013_Task_Markers` with marker strings that uniquely name
+what happened and when. The README has a per-task marker reference with
+expected deltas; that's the canonical spec. This section is the short
+onramp for analysis work.
+
+### Tooling already in the repo
+
+- `scripts/verify_xdf.py` — Rich-formatted per-task coverage check against
+  the spec below, plus a summary, a "suggested edits" panel for any gaps,
+  and (always-on) a chronological marker timeline in Pacific time.
+  Flags: `--no-timeline`, `--timeline-summary-only`.
+- `scripts/timeline_xdf.py` — same chronology in standalone form.
+- Both default to the single `.xdf` in `sampledata/` (gitignored) and
+  accept a path argument for ad-hoc runs.
+
+Install deps (pyxdf + numpy + rich) via `uv sync --extra dev`. Don't
+`pip install pyxdf` into a global env — stay inside the project venv.
+
+### Streams you should expect in a full-production XDF
+
+1. `P013_Task_Markers` (stream type `Markers`, channel format `cf_string`,
+   source_id **stable** `P013_Launcher`). The stable source_id is load-bearing:
+   before the fix in commit `8094ab4` it swapped mid-session, which broke
+   LabRecorder's subscription and silently produced an empty stream.
+2. `VaylStim_Freq` (type `Stimulus`, 250 Hz float32, source_id
+   `vayl_freq_VaylStim`). Continuous effective-SSVEP Hz from the bridge.
+   **Not required** for analysis — the ramp is a linear function fully
+   specified by the JSON `ramp_start` event on `P013_Task_Markers`.
+3. `Sentiometer` (type `Misc`, 500 Hz float32, 6 channels: `device_ts`,
+   `PD1`–`PD5`).
+4. EEG — stream name is vendor-specific (`BrainAmpSeries-Dev_1` for
+   BrainVision; `CGX AIM Phys. Mon. AIM-NNNN` for CGX). Both are `type=EEG`.
+   CGX also emits an `Impedance` stream.
+5. `VaylStim` — **no longer expected** in new recordings. The bridge's
+   marker outlet is redirected to `P013_Task_Markers` so every marker lives
+   on a single stream.
+
+### Minimal XDF-loading recipe
+
+```python
+import numpy as np
+import pyxdf
+
+streams, header = pyxdf.load_xdf("sampledata/your_session.xdf")
+
+def get_stream(name):
+    return next(s for s in streams if s["info"]["name"][0] == name)
+
+markers = get_stream("P013_Task_Markers")
+marker_strings = [s[0] for s in markers["time_series"]]
+marker_ts      = np.asarray(markers["time_stamps"], dtype=float)  # LSL seconds
+```
+
+All streams share the LSL clock (`pylsl.local_clock()`), so subtracting
+timestamps between streams gives seconds directly.
+
+### Epoching cheatsheet per task
+
+The README's marker reference has the full spec. Quick reminders for the
+most common epoching anchors:
+
+- **Task 01 P300** — epoch on `task01_tone_deviant` vs. `task01_tone_standard`
+  (main block only; practice tones are prefixed `task01_practice_*`). Lock
+  to tone onset, window `[-200, 800] ms`.
+- **Task 02 decoding** — one trial per `task02_color_{red,green,blue}`,
+  duration runs until the following `task02_iti`. Exclude breaks
+  (`task02_break_start` → `task02_break_end`).
+- **Task 03 backward masking** — epoch on `task03_face_onset` (face-present
+  trials only; catch trials use `task03_catch_trial` and never emit
+  `task03_face_onset`). The SOA used on each face trial is in the
+  `task03_soa_value_XXX` marker that immediately follows the response.
+  Split epochs by the response label (`task03_response_seen` /
+  `_unseen` / `_unsure` / `_timeout`) to get the hit / miss contrast.
+- **Task 04 mind-state** — use `task04_game_start` → `task04_game_end` and
+  `task04_meditation_start` → `task04_meditation_end` as the two
+  condition windows. `task04_break_*` is transition, not a condition.
+  For obstacle-aligned work use `task04_obstacle_appear` / `_jump_start` /
+  `_collision`.
+- **Task 05 SSVEP** — epoch inside `[task05_ramp_begin, task05_ramp_end]`
+  and compute instantaneous effective frequency from the JSON
+  `ramp_start` event:
+  ```python
+  progress = (t - ramp_start_lsl) / duration_s
+  eff_hz   = stim_start_hz + progress * (stim_end_hz - stim_start_hz)
+  ```
+  For sub-ms EEG alignment use the `wallTimeMs` field inside the JSON
+  instead of the LSL timestamp (the LSL one has ~1–5 ms HTTP round-trip
+  latency; `wallTimeMs` is measured on Vayl's server at the GPU flip).
+
+### Known quirks / gotchas
+
+- **Frame-flip accuracy**: PsychoPy markers are taken right after
+  `win.flip()` returns, which blocks until vsync (`waitBlanking=True`).
+  Accuracy is one refresh, ~16 ms at 60 Hz. Fine for all our endpoints,
+  NOT fine for sub-ms phase-locked work — use Vayl's `wallTimeMs` for
+  that.
+- **Practice phase has no response markers**: Task 01 and Task 03
+  practice blocks emit tone/face/mask markers but do NOT emit
+  `task01_response_*` / `task03_response_*`. The behavioral CSV written
+  by each task (in `data/{pid}/task0N_*.csv`) records practice
+  responses; the LSL stream intentionally doesn't.
+- **Task 01 Sound.play() timing on pygame backend**: PsychoPy 2025's
+  pygame `Sound.play()` has a broken `isPlaying` guard that would
+  silently no-op every second call. `tasks/01_oddball/task.py` resets
+  `sound._isPlaying = False` before every `.play()` — the workaround
+  is committed but worth knowing if you clone the behavioral code.
+- **Task 05 without the VaylStim_Freq stream** is still fully analysable:
+  the JSON `ramp_start` event on `P013_Task_Markers` carries the full
+  ramp spec (`stimFreqHz`, `stimFreqEndHz`, `durationSeconds`,
+  `wallTimeMs`). The 250 Hz stream is just a pre-sampled linear
+  interpolation of the same function.
+- **participant_id**: stored as a marker string `participant_id:P001`
+  right after `session_start`. Since commit `8094ab4` the outlet's
+  `source_id` is the constant `P013_Launcher`, not `P013_P001`, to keep
+  LabRecorder's subscription stable mid-session.
+- **session_log.json** in `data/{pid}/session_log.json` is the ground
+  truth for which tasks actually ran (vs. skipped / failed / aborted)
+  and a full snapshot of the config used for this participant. Cross-
+  reference against the XDF when reconciling odd recordings.
+
+### Behavioural CSVs (per-task, alongside the XDF)
+
+Each task writes a task-specific CSV to `data/{pid}/` on completion.
+Timestamps in these CSVs are LSL seconds, same clock as the XDF, so
+cross-referencing is a subtraction.
+
+- `task01_oddball_*.csv` — `trial_number`, `phase` (practice/main),
+  `practice_attempt`, `tone_type`, `tone_onset_time` (LSL), `response_time`,
+  `response_type` (hit/miss/false_alarm/correct_rejection), `rt_ms`.
+- `task02_rgb_illuminance_*.csv` — trial index, color, onset, duration.
+- `task03_backward_masking_*.csv` — trial, phase, `face_id`, `soa_ms`,
+  `response`, `rt_ms`, QUEST state.
+- `task04_mind_state_events.csv` — phase, event type, timestamp.
+- `task05_session_log.csv` — event + timestamp + details
+  (Vayl connectivity, carrier frequencies, `wallTimeMs` per event).
+
+Use these for per-participant behavioural summaries; use the XDF for
+continuous / time-locked EEG + Sentiometer signals.

@@ -51,3 +51,4 @@ config/local.yaml
 # download step. See src/tasks/03_backward_masking/stimuli/README.md for
 # attribution and licensing notes. Do NOT re-add an exclusion here without
 # discussing it first — removing the stimuli breaks Task 03.
+outputs/

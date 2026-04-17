@@ -41,6 +41,8 @@ class MockTaskIO:
     def __init__(self) -> None:
         self.shown_texts: list[str] = []
         self.shown_solids: list[tuple[int, int, int]] = []
+        self.iconify_calls = 0
+        self.restore_calls = 0
         self.waits: list[float] = []
 
     def show_text_and_wait(self, text: str, wait_key: str) -> None:
@@ -48,6 +50,12 @@ class MockTaskIO:
 
     def show_solid(self, rgb: tuple[int, int, int]) -> None:
         self.shown_solids.append(rgb)
+
+    def iconify(self) -> None:
+        self.iconify_calls += 1
+
+    def restore(self) -> None:
+        self.restore_calls += 1
 
     def check_escape(self) -> None:
         return None
@@ -210,9 +218,12 @@ class TestFullRunWithWorkingBridge:
         assert len(mock_bridge.wait_for_ramp_calls) == 1
         assert mock_bridge.turn_off_calls == 1
 
-        # Background fills: white during Vayl, black after it fades out.
+        # Background fills: white flash before Vayl, black after.
         assert (255, 255, 255) in mock_io.shown_solids
         assert (0, 0, 0) in mock_io.shown_solids
+        # Iconify to hand the screen to Vayl; restore before the black fill.
+        assert mock_io.iconify_calls == 1
+        assert mock_io.restore_calls == 1
         # Only the instructions screen prompts the participant — the
         # completion screen was removed so tasks flow without extra space
         # presses.

@@ -30,7 +30,25 @@
       "WebFetch(domain:github.com)",
       "Bash(python3 -c ' *)",
       "Bash(wait)",
-      "Bash(chmod +x /Users/iacs/Desktop/GITHUB/iacs-sentiometer-study/launch.command)"
+      "Bash(chmod +x /Users/iacs/Desktop/GITHUB/iacs-sentiometer-study/launch.command)",
+      "Bash(git fetch *)",
+      "Bash(git pull *)",
+      "Bash(git stash *)",
+      "Bash(chmod +x \"Launch P013.app/Contents/MacOS/run\")",
+      "Bash(bash -n \"Launch P013.app/Contents/MacOS/run\")",
+      "Bash(bash \"Launch P013.app/Contents/MacOS/run\")",
+      "Bash(kill %1)",
+      "Bash(xattr \"Launch P013.app\")",
+      "Bash(xattr \"Launch P013.app/Contents/MacOS/run\")",
+      "Bash(open \"Launch P013.app\")",
+      "Bash(rm -f data/gui_launcher.log /tmp/p013_launcher.log)",
+      "Read(//tmp/**)",
+      "Bash(tccutil reset *)",
+      "Bash(codesign --sign - --force --deep \"Launch P013.app\")",
+      "Bash(codesign --verify --verbose=2 \"Launch P013.app\")",
+      "Bash(xattr -cr \"Launch P013.app\")",
+      "Bash(open \"x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Files&FoldersServices\")",
+      "Bash(open \"x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders\")"
     ]
   }
 }

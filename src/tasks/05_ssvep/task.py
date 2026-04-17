@@ -36,6 +36,8 @@ from __future__ import annotations
 import csv
 import importlib
 import logging
+import platform
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,6 +53,165 @@ from tasks.common.lsl_markers import create_demo_outlet, send_marker
 # sibling Vayl bridge module. importlib resolves it via the file system.
 _vayl_mod = importlib.import_module("tasks.05_ssvep.vayl_lsl_bridge")
 VaylBridge = _vayl_mod.VaylBridge
+
+
+# ----- macOS Dock + menu-bar auto-hide helpers -----------------------------
+#
+# Vayl's overlay is a normal window that sits below Apple's Dock and menu
+# bar, so those stay visible during the ramp. We flip on auto-hide for the
+# duration of Task 05 (only) and restore whatever the RA had configured
+# before. No-ops on non-macOS.
+
+
+def _read_dock_autohide() -> bool | None:
+    """Return the current `autohide` state of the Dock, or None if unknown."""
+    try:
+        out = subprocess.run(
+            ["/usr/bin/defaults", "read", "com.apple.dock", "autohide"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("defaults read com.apple.dock autohide failed: %s", exc)
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip() in {"1", "true", "YES"}
+
+
+def _set_dock_autohide(value: bool) -> None:
+    """Set the Dock's autohide state and restart the Dock to apply."""
+    try:
+        subprocess.run(
+            ["/usr/bin/defaults", "write", "com.apple.dock",
+             "autohide", "-bool", "true" if value else "false"],
+            check=False, timeout=2,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        subprocess.run(
+            ["/usr/bin/killall", "Dock"],
+            check=False, timeout=2,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("Could not toggle Dock autohide=%s: %s", value, exc)
+
+
+def _set_menu_bar_autohide(value: bool) -> None:
+    """Set the menu bar's autohide state via AppleScript.
+
+    On macOS 13+ the menu bar autohide toggle lives under Dock preferences.
+    Uses AppleScript so we don't have to chase the underlying defaults
+    domain (which has changed across OS versions).
+    """
+    script = (
+        f'tell application "System Events" to tell dock preferences to set '
+        f'autohide menu bar to {"true" if value else "false"}'
+    )
+    try:
+        subprocess.run(
+            ["/usr/bin/osascript", "-e", script],
+            check=False, timeout=2,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("Could not toggle menu bar autohide=%s: %s", value, exc)
+
+
+def _read_menu_bar_autohide() -> bool | None:
+    """Return the current menu-bar autohide state, or None if unknown."""
+    script = (
+        'tell application "System Events" to tell dock preferences to get '
+        'autohide menu bar'
+    )
+    try:
+        out = subprocess.run(
+            ["/usr/bin/osascript", "-e", script],
+            check=False, capture_output=True, text=True, timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("osascript read menu bar autohide failed: %s", exc)
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip().lower() == "true"
+
+
+def _hide_cursor_system_wide() -> None:
+    """Hide the mouse cursor via CoreGraphics (system-wide, ref-counted).
+
+    Unlike ``NSCursor.hide`` which only applies while our app is frontmost,
+    ``CGDisplayHideCursor`` is ref-counted on the display and persists
+    across the app handoff to Vayl. No-op on non-macOS.
+    """
+    if platform.system() != "Darwin":
+        return
+    try:
+        from Quartz import (  # noqa: PLC0415
+            CGDisplayHideCursor,
+            CGMainDisplayID,
+        )
+
+        CGDisplayHideCursor(CGMainDisplayID())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not hide cursor: %s", exc)
+
+
+def _show_cursor_system_wide() -> None:
+    """Undo :func:`_hide_cursor_system_wide`."""
+    if platform.system() != "Darwin":
+        return
+    try:
+        from Quartz import (  # noqa: PLC0415
+            CGDisplayShowCursor,
+            CGMainDisplayID,
+        )
+
+        CGDisplayShowCursor(CGMainDisplayID())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not show cursor: %s", exc)
+
+
+class _ChromeHide:
+    """Context manager that hides the Dock, menu bar, and cursor for a block.
+
+    Remembers whatever Dock / menu-bar state was set beforehand and restores
+    it on exit. Silent no-op on non-macOS or when the underlying commands
+    fail.
+    """
+
+    def __init__(self) -> None:
+        self._prev_dock: bool | None = None
+        self._prev_menubar: bool | None = None
+        self._active = False
+        self._cursor_hidden = False
+
+    def __enter__(self) -> "_ChromeHide":
+        if platform.system() != "Darwin":
+            return self
+        self._prev_dock = _read_dock_autohide()
+        self._prev_menubar = _read_menu_bar_autohide()
+        _set_dock_autohide(True)
+        _set_menu_bar_autohide(True)
+        _hide_cursor_system_wide()
+        self._cursor_hidden = True
+        self._active = True
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        if not self._active:
+            return
+        if self._cursor_hidden:
+            _show_cursor_system_wide()
+            self._cursor_hidden = False
+        if self._prev_dock is not None:
+            _set_dock_autohide(self._prev_dock)
+        if self._prev_menubar is not None:
+            _set_menu_bar_autohide(self._prev_menubar)
+
+
 
 log = logging.getLogger(__name__)
 
@@ -85,12 +246,13 @@ class TaskIO:
     """Show *text* on a gray screen; block until *wait_key* is pressed."""
 
     show_solid: Callable[[tuple[int, int, int]], None]
-    """Fill the entire Pygame surface with *rgb* and flip.
+    """Fill the entire Pygame surface with *rgb* and flip."""
 
-    Used as the background for Vayl's overlay (white while ramping, black
-    after). Vayl renders on top of OS windows so our own surface colour
-    shows through wherever the checkerboard overlay is not.
-    """
+    iconify: Callable[[], None]
+    """Minimize the Pygame window so the Vayl overlay owns the screen."""
+
+    restore: Callable[[], None]
+    """Re-present the Pygame window after the Vayl overlay fades out."""
 
     check_escape: Callable[[], None]
     """Raise :class:`EscapePressedError` if Escape was pressed."""
@@ -112,10 +274,22 @@ def _build_pygame_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
     import pygame  # noqa: PLC0415
 
     pygame.init()
-    flags = 0 if demo else pygame.FULLSCREEN
-    # 1280x720 is only used when windowed; fullscreen takes the display's
-    # native resolution.
-    screen = pygame.display.set_mode((1280, 720), flags)
+    # NOFRAME borderless at desktop resolution — visually fullscreen, but
+    # it's a regular window so `pygame.display.iconify()` actually works
+    # during the Vayl ramp. Using `pygame.FULLSCREEN` on macOS puts the
+    # window in its own Mission Control Space where iconify is a no-op,
+    # which left the RA stuck on a white screen until Vayl finished.
+    if demo:
+        mode_size: tuple[int, int] = (1280, 720)
+        flags = 0
+    else:
+        try:
+            mode_size = pygame.display.get_desktop_sizes()[0]
+        except (AttributeError, IndexError):
+            info = pygame.display.Info()
+            mode_size = (info.current_w or 1920, info.current_h or 1080)
+        flags = pygame.NOFRAME
+    screen = pygame.display.set_mode(mode_size, flags)
     surf_w, surf_h = screen.get_size()
     pygame.display.set_caption("IACS Task 05 -- SSVEP Frequency Ramp")
     font = pygame.font.SysFont(None, 48)
@@ -147,9 +321,16 @@ def _build_pygame_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
     def show_solid(rgb: tuple[int, int, int]) -> None:
         screen.fill(rgb)
         pygame.display.flip()
-        # Pump the event queue once so the window redraws and the OS
-        # doesn't mark us unresponsive during the long ramp.
         pygame.event.pump()
+
+    def iconify() -> None:
+        pygame.display.iconify()
+
+    def restore() -> None:
+        # Re-setting the display mode brings the window back to the front
+        # on most platforms after an iconify.
+        nonlocal screen
+        screen = pygame.display.set_mode(mode_size, flags)
 
     def check_escape() -> None:
         for ev in pygame.event.get():
@@ -167,6 +348,8 @@ def _build_pygame_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
     io = TaskIO(
         show_text_and_wait=show_text_and_wait,
         show_solid=show_solid,
+        iconify=iconify,
+        restore=restore,
         check_escape=check_escape,
         wait=wait,
     )
@@ -280,6 +463,9 @@ def run(
         )
 
     entries: list[dict] = []
+    # Declared here so the `finally` block can always restore chrome, even
+    # if the RA aborts during the ramp.
+    chrome_hider = _ChromeHide()
 
     try:
         send_marker(outlet, "task05_start")
@@ -320,11 +506,18 @@ def run(
                 }
             )
 
-        # Paint the background white so it shows through wherever Vayl's
-        # overlay isn't rendered. The Vayl app draws its checkerboard on
-        # top of OS windows, so our own white fill serves as the framed
-        # background for the stimulation.
+        # Brief white flash, then hand the screen to Vayl. On macOS the
+        # Pygame window otherwise sits above Vayl's overlay and the
+        # stroboscope is invisible. Iconify is the pragmatic fix — the
+        # participant sees the checkerboard, not our backdrop.
+        #
+        # ChromeHide flips on Dock + menu-bar auto-hide so Vayl's overlay
+        # isn't framed by them while it runs. The RA's previous prefs are
+        # restored in the `finally` block (covers abort + error paths too).
+        chrome_hider.__enter__()
         io.show_solid((255, 255, 255))
+        io.wait(0.5)
+        io.iconify()
 
         # ----- Ramp -----
         start_hz = float(config["carrier_start_hz"])
@@ -368,10 +561,10 @@ def run(
 
         send_marker(outlet, "task05_overlay_off")
 
-        # ----- Return to black background, no completion prompt -----
-        # The launcher takes over after run() returns; no need to wait for
-        # a spacebar press between tasks. A brief black screen gives the
-        # retina a second to settle after the Vayl overlay fades.
+        # ----- Restore Pygame window and show black -----
+        # chrome_hider is restored in the `finally` block below; doing it
+        # here too would be redundant.
+        io.restore()
         io.show_solid((0, 0, 0))
         io.wait(1.5)
 
@@ -383,6 +576,9 @@ def run(
         log.info("Task 05 complete: %s", log_path)
         return log_path
     finally:
+        # Always restore Dock/menu-bar preferences, even if the RA aborted
+        # mid-ramp. No-op if we never hid them.
+        chrome_hider.__exit__(None, None, None)
         cleanup()
         if own_outlet:
             del outlet

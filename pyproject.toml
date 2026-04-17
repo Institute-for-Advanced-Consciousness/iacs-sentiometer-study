@@ -23,9 +23,12 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.4",
     "mypy>=1.10",
-    # verify_xdf.py uses pyxdf to inspect recorded sessions
+    # verify_xdf.py uses pyxdf to inspect recorded sessions;
+    # xdf_to_edf.py writes EDF+ for collaborators who work in EDF (e.g.
+    # Dr. Paller's sleep-scoring pipeline).
     "pyxdf>=1.16",
     "numpy>=1.26",
+    "pyedflib>=0.1.38",
 ]
 tasks = [
     "psychopy>=2024.1",

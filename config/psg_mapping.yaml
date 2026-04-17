@@ -1,0 +1,124 @@
+# Channel-mapping override for scripts/xdf_to_edf.py when the recipient
+# (e.g. Dr. Ken Paller's sleep-scoring pipeline) wants a compact EDF+
+# containing only the PSG-relevant signals.
+#
+# The CGX AIM-2's ExGa 1–4 inputs are user-configurable bipolar/aux
+# channels. In our P013 wiring they are conventionally:
+#
+#   ExGa 1 -> EOG-L   (left outer canthus, referenced per CGX montage)
+#   ExGa 2 -> EOG-R   (right outer canthus)
+#   ExGa 3 -> EMG-Chin1  (submental electrode 1)
+#   ExGa 4 -> EMG-Chin2  (submental electrode 2; bipolar pair with ExGa 3)
+#
+# CONFIRM the above with your lab's own CGX wiring log before sending an
+# EDF off for scoring. If the RA wired things differently, edit the
+# `label` values below.
+#
+# Everything not listed here is EXCLUDED by default, so the resulting
+# EDF+ contains only the channels Dr. Paller needs. Remove/comment-out
+# entries to add more channels back in.
+
+# --- BrainVision 64-ch EEG: keep only AASM sleep-scoring essentials ---
+# F3/F4 (frontal), C3/C4 (central), O1/O2 (occipital) + TP9/TP10 as
+# mastoid proxies. Sleep software can derive C3-M2 etc. from these.
+"BrainAmpSeries-Dev_1":
+  # Frontal pair
+  "F3": {label: "F3"}
+  "F4": {label: "F4"}
+  # Central pair (AASM primary)
+  "C3": {label: "C3"}
+  "C4": {label: "C4"}
+  # Occipital pair
+  "O1": {label: "O1"}
+  "O2": {label: "O2"}
+  # Mastoid proxies (TP9/TP10 sit on the mastoid bone in the 10-10 system
+  # and are widely used as M1/M2 references for research-grade PSG).
+  "TP9": {label: "M1-TP9"}
+  "TP10": {label: "M2-TP10"}
+  # Everything else on the BrainVision cap — drop by default. To keep a
+  # channel, add `"<orig>": {label: "<final>"}` above and it will pass.
+  # Every remaining channel must be explicitly excluded (default policy
+  # keeps EEG-type channels otherwise):
+  "Fp1": {exclude: true}
+  "Fp2": {exclude: true}
+  "F7": {exclude: true}
+  "F8": {exclude: true}
+  "T7": {exclude: true}
+  "T8": {exclude: true}
+  "P3": {exclude: true}
+  "P4": {exclude: true}
+  "P7": {exclude: true}
+  "P8": {exclude: true}
+  "Fz": {exclude: true}
+  "Cz": {exclude: true}
+  "Pz": {exclude: true}
+  "Iz": {exclude: true}
+  "FC1": {exclude: true}
+  "FC2": {exclude: true}
+  "CP1": {exclude: true}
+  "CP2": {exclude: true}
+  "FC5": {exclude: true}
+  "FC6": {exclude: true}
+  "CP5": {exclude: true}
+  "CP6": {exclude: true}
+  "FT9": {exclude: true}
+  "FT10": {exclude: true}
+  "F1": {exclude: true}
+  "F2": {exclude: true}
+  "C1": {exclude: true}
+  "C2": {exclude: true}
+  "P1": {exclude: true}
+  "P2": {exclude: true}
+  "AF3": {exclude: true}
+  "AF4": {exclude: true}
+  "FC3": {exclude: true}
+  "FC4": {exclude: true}
+  "CP3": {exclude: true}
+  "CP4": {exclude: true}
+  "PO3": {exclude: true}
+  "PO4": {exclude: true}
+  "F5": {exclude: true}
+  "F6": {exclude: true}
+  "C5": {exclude: true}
+  "C6": {exclude: true}
+  "P5": {exclude: true}
+  "P6": {exclude: true}
+  "AF7": {exclude: true}
+  "AF8": {exclude: true}
+  "FT7": {exclude: true}
+  "FT8": {exclude: true}
+  "TP7": {exclude: true}
+  "TP8": {exclude: true}
+  "PO7": {exclude: true}
+  "PO8": {exclude: true}
+  "Fpz": {exclude: true}
+  "CPz": {exclude: true}
+  "POz": {exclude: true}
+  "Oz": {exclude: true}
+
+# --- CGX AIM-2: peripheral PSG channels ---
+"CGX AIM Phys. Mon. AIM-0106":
+  "ExGa 1": {label: "EOG-L"}
+  "ExGa 2": {label: "EOG-R"}
+  "ExGa 3": {label: "EMG-Chin1"}
+  "ExGa 4": {label: "EMG-Chin2"}
+  "ECG ": {label: "ECG"}          # note the trailing space in CGX labels
+  "Resp.": {label: "Respiration"}
+  "PPG": {label: "PPG"}
+  "SpO2": {label: "SpO2"}
+  # HR is derived from ECG/PPG; keep if you want the device-side estimate
+  "HR": {label: "HR"}
+  "GSR": {label: "GSR"}
+  "Temp.": {label: "Temp"}
+  # System channels — drop
+  "Packet Counter": {exclude: true}
+  "TRIGGER": {exclude: true}
+
+# --- Impedance + Sentiometer + P013 markers: exclude whole stream ---
+# The impedance stream is auto-dropped by the default policy
+# (stream type = Impedance). Sentiometer optical data isn't used for
+# PSG scoring and shouldn't inflate the EDF.
+"Sentiometer":
+  _exclude_stream: true
+"P013_Task_Markers":
+  _exclude_stream: true

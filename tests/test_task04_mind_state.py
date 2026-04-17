@@ -266,8 +266,6 @@ class TestRunMeditationBlock:
         markers = _drain_inlet(inlet)
 
         expected = [
-            "task04_meditation_instructions_start",
-            "task04_meditation_instructions_end",
             "task04_meditation_audio_start",
             "task04_meditation_audio_end",
             "task04_meditation_gong_start",
@@ -315,7 +313,7 @@ class TestFullOrchestrator:
             "gong_file": "assets/sounds/Simple_Gong.wav",
         }
 
-    def test_full_run_emits_all_19_markers(
+    def test_full_run_emits_all_markers(
         self,
         captured_marker_outlet,
         small_config: dict,
@@ -396,9 +394,8 @@ class TestFullOrchestrator:
             # Break
             "task04_break_start",
             "task04_break_end",
-            # Meditation
-            "task04_meditation_instructions_start",
-            "task04_meditation_instructions_end",
+            # Meditation (no instructions_start/_end — folded into break
+            # screen above; meditation starts directly with the audio).
             "task04_meditation_audio_start",
             "task04_meditation_audio_end",
             "task04_meditation_gong_start",
@@ -406,8 +403,8 @@ class TestFullOrchestrator:
             "task04_meditation_gong_end",
             "task04_meditation_end",
         }
-        # 21 distinct markers with the new audio_start/audio_end pair.
-        assert len(expected) == 21
+        # 19 distinct markers after folding meditation instructions into break.
+        assert len(expected) == 19
         missing = expected - marker_set
         assert not missing, f"Missing marker types: {sorted(missing)}"
 
@@ -421,7 +418,7 @@ class TestFullOrchestrator:
         )
         assert markers.index("task04_game_end") < markers.index("task04_break_start")
         assert markers.index("task04_break_end") < markers.index(
-            "task04_meditation_instructions_start"
+            "task04_meditation_audio_start"
         )
         assert markers.index("task04_meditation_end") < markers.index("task04_end")
 

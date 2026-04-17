@@ -138,8 +138,6 @@ TASK_SPECS: dict[str, dict[str, Any]] = {
             "task04_jump_end",
             "task04_collision",
             "task04_speed_increase",
-            "task04_meditation_instructions_start",
-            "task04_meditation_instructions_end",
             "task04_meditation_audio_start",
             "task04_meditation_audio_end",
             "task04_meditation_gong_start",

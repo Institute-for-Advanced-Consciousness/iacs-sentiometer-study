@@ -1,31 +1,27 @@
-"""Task 04 meditation block: short instructions -> audio -> gong -> silence -> gong.
+"""Task 04 meditation block: audio -> gong -> silence -> gong -> open-eyes.
 
 The block has no visual content during the meditation itself (the screen is
-black while the participant's eyes are closed).
+black while the participant's eyes are closed). The "press spacebar when
+ready and close your eyes immediately after" prompt is owned by
+``_run_break`` (the prior bridge phase), so this block starts with the
+participant's eyes already closed.
 
 Flow:
 
-1. Short text telling the participant the next block is a meditation and
-   to press spacebar + close their eyes.
-2. Screen goes black. A pre-recorded meditation-instructions audio
-   (``assets/sounds/meditation_instructions.mp3``) plays. The block waits
-   for the audio to finish.
-3. First gong rings.
-4. Silent ``duration_s`` timer (default 6 min between gongs).
-5. Second gong rings.
-6. Completion screen — participant opens eyes and presses spacebar.
+1. Black screen + recorded meditation-instructions audio (mp3).
+2. First gong rings.
+3. Silent ``duration_s`` timer (default 6 min between gongs).
+4. Second gong rings.
+5. Completion screen — participant opens eyes and presses spacebar.
 
 Markers emitted (in order):
 
-* ``task04_meditation_instructions_start``  — text shown
-* ``task04_meditation_instructions_end``    — participant pressed space,
-  text dismissed
-* ``task04_meditation_audio_start``         — mp3 begins
-* ``task04_meditation_audio_end``           — mp3 finishes
-* ``task04_meditation_gong_start``          — first gong
-* ``task04_meditation_start``               — silent timer begins
-* ``task04_meditation_gong_end``            — second gong
-* ``task04_meditation_end``                 — completion screen dismissed
+* ``task04_meditation_audio_start`` — mp3 begins
+* ``task04_meditation_audio_end``   — mp3 finishes
+* ``task04_meditation_gong_start``  — first gong
+* ``task04_meditation_start``       — silent timer begins
+* ``task04_meditation_gong_end``    — second gong
+* ``task04_meditation_end``         — completion screen dismissed
 
 Like :mod:`game`, this module never touches Pygame directly -- it
 delegates every side effect to a ``TaskIO`` so it can run headlessly in
@@ -37,13 +33,6 @@ from __future__ import annotations
 from pylsl import StreamOutlet, local_clock
 
 from tasks.common.lsl_markers import send_marker
-
-MEDITATION_INSTRUCTIONS_TEXT = (
-    "A recorded guide will begin momentarily. Keep your eyes closed "
-    "and follow the voice. The silent meditation begins when you "
-    "hear the first gong and ends at the second gong.\n\n"
-    "Press spacebar to begin and close your eyes immediately after."
-)
 
 MEDITATION_COMPLETE_TEXT = (
     "The meditation is complete. Please open your eyes.\n\n"
@@ -89,14 +78,9 @@ def run_meditation_block(
             }
         )
 
-    # ----- 1. Short instructions text -----
-    send_marker(outlet, "task04_meditation_instructions_start")
-    _mark("instructions_start")
-    io.show_text_and_wait(MEDITATION_INSTRUCTIONS_TEXT, "space")
-    send_marker(outlet, "task04_meditation_instructions_end")
-    _mark("instructions_end")
-
-    # ----- 2. Guided-meditation audio over a black screen -----
+    # ----- 1. Guided-meditation audio over a black screen -----
+    # No instructions text here — the prior break phase already showed
+    # the "press space when ready and close your eyes" prompt.
     io.show_black_screen()
     send_marker(outlet, "task04_meditation_audio_start")
     _mark("audio_start", audio_speed=audio_speed)
@@ -104,7 +88,7 @@ def run_meditation_block(
     send_marker(outlet, "task04_meditation_audio_end")
     _mark("audio_end")
 
-    # ----- 3. First gong + silent timer -----
+    # ----- 2. First gong + silent timer -----
     io.play_gong()
     send_marker(outlet, "task04_meditation_gong_start")
     send_marker(outlet, "task04_meditation_start")
@@ -112,12 +96,12 @@ def run_meditation_block(
 
     io.wait(duration_s)
 
-    # ----- 4. Second gong -----
+    # ----- 3. Second gong -----
     io.play_gong()
     send_marker(outlet, "task04_meditation_gong_end")
     _mark("gong_end")
 
-    # ----- 5. Completion screen -----
+    # ----- 4. Completion screen -----
     io.show_text_and_wait(MEDITATION_COMPLETE_TEXT, "space")
     send_marker(outlet, "task04_meditation_end")
     _mark("end")

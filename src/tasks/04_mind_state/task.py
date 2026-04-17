@@ -111,8 +111,11 @@ def _build_pygame_io(demo: bool, gong_path: Path) -> tuple[TaskIO, Callable[[], 
     pygame.init()
     pygame.mixer.init()
 
-    flags = 0 if demo else pygame.FULLSCREEN
-    screen = pygame.display.set_mode((game_mod.SCREEN_W, game_mod.SCREEN_H), flags)
+    # Demo keeps fullscreen so the RA can feel the actual game experience;
+    # only block durations are abbreviated.
+    screen = pygame.display.set_mode(
+        (game_mod.SCREEN_W, game_mod.SCREEN_H), pygame.FULLSCREEN
+    )
     pygame.display.set_caption("IACS Task 04 -- Mind-State Switching")
     clock = pygame.time.Clock()
     font_big = pygame.font.SysFont(None, 48)

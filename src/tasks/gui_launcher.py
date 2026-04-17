@@ -39,6 +39,7 @@ from tasks.launcher import (
     _resolve_by_name,
     _resolve_by_type,
     _run_task,
+    _vayl_stop_overlay,
     run_session,
 )
 
@@ -636,6 +637,17 @@ class GuiLauncher:
             # the XDF still records who this session was for.
             if self.outlet is not None:
                 send_marker(self.outlet, f"participant_id:{pid}")
+
+            # Belt-and-braces: make sure the Vayl overlay is OFF before
+            # Task 01 starts. Tasks 01-04 must never have the strobing
+            # checkerboard running behind them. Task 05 will turn it ON
+            # when it needs to and OFF again at ramp_end.
+            if self.vayl_ok:
+                stopped = _vayl_stop_overlay()
+                self._log(
+                    "Pre-session Vayl overlay-off: "
+                    + ("OK" if stopped else "WARN — POST failed (not fatal)")
+                )
             self.root.update_idletasks()
 
             # Hide the launcher for the entire session — participants never

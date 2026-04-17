@@ -165,6 +165,22 @@ def _check_vayl_reachable(api_url: str = "http://127.0.0.1:9471") -> bool:
         return False
 
 
+def _vayl_stop_overlay(api_url: str = "http://127.0.0.1:9471") -> bool:
+    """Best-effort POST to Vayl's overlay-off endpoint.
+
+    Used by the GUI to make absolutely sure the desktop isn't strobing
+    before the session starts (Task 01 / 02 / 03 / 04 should never see a
+    live Vayl overlay behind them). Returns True on HTTP 2xx, False
+    otherwise. Idempotent on the Vayl side.
+    """
+    req = urllib.request.Request(f"{api_url}/api/overlay/off", method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return 200 <= resp.status < 300
+    except (urllib.error.URLError, OSError, TimeoutError):
+        return False
+
+
 def _symbol(ok: bool, warn_only: bool = False) -> str:
     if ok:
         return "[green]OK[/green]"

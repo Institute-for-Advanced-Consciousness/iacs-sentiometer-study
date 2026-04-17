@@ -229,7 +229,10 @@ def _build_psychopy_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
     )
     from tasks.common.instructions import show_instructions  # noqa: PLC0415
 
-    win = create_window(fullscreen=not demo)
+    # Demo mode keeps the full-screen display so the RA can sanity-check
+    # exactly what the participant sees. Only trial counts / practice gates
+    # are abbreviated in demo, not the visual layout.
+    win = create_window(fullscreen=True)
     # Force focus so keyboard events reach this window when the Tk launcher
     # is still alive in the same process.
     try:

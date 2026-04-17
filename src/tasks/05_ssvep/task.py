@@ -287,16 +287,15 @@ def _build_pygame_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
     # during the Vayl ramp. Using `pygame.FULLSCREEN` on macOS puts the
     # window in its own Mission Control Space where iconify is a no-op,
     # which left the RA stuck on a white screen until Vayl finished.
-    if demo:
-        mode_size: tuple[int, int] = (1280, 720)
-        flags = 0
-    else:
-        try:
-            mode_size = pygame.display.get_desktop_sizes()[0]
-        except (AttributeError, IndexError):
-            info = pygame.display.Info()
-            mode_size = (info.current_w or 1920, info.current_h or 1080)
-        flags = pygame.NOFRAME
+    # Demo keeps the same fullscreen-sized NOFRAME window as production;
+    # only the ramp duration / trial counts are abbreviated for demo runs
+    # elsewhere. The RA sees exactly what the participant will see.
+    try:
+        mode_size: tuple[int, int] = pygame.display.get_desktop_sizes()[0]
+    except (AttributeError, IndexError):
+        info = pygame.display.Info()
+        mode_size = (info.current_w or 1920, info.current_h or 1080)
+    flags = pygame.NOFRAME
     screen = pygame.display.set_mode(mode_size, flags)
     surf_w, surf_h = screen.get_size()
     pygame.display.set_caption("IACS Task 05 -- SSVEP Frequency Ramp")

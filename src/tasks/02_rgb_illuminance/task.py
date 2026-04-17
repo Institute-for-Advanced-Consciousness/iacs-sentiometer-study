@@ -178,7 +178,8 @@ def _build_psychopy_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
         show_instructions as draw_instructions,
     )
 
-    win = create_window(fullscreen=not demo)
+    # Demo keeps fullscreen; only trial counts / durations are abbreviated.
+    win = create_window(fullscreen=True)
 
     # Pre-build full-screen rects in normalized coordinates so they always
     # cover the full window regardless of aspect ratio.

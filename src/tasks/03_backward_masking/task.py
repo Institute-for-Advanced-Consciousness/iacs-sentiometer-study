@@ -329,7 +329,9 @@ def _build_psychopy_io(
         show_instructions as draw_instructions,
     )
 
-    win = create_window(fullscreen=not demo)
+    # Demo keeps fullscreen so the RA can verify participant-view geometry;
+    # only trial counts are abbreviated.
+    win = create_window(fullscreen=True)
 
     # Full-screen gray background rect
     gray_rect = visual.Rect(

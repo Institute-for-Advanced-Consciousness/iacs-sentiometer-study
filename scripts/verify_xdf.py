@@ -577,9 +577,18 @@ def _find_xdf(path_arg: str | None) -> Path:
     return candidates[0]
 
 
-def _render(path: Path, report: VerificationReport) -> int:
-    """Print the report as Rich tables. Returns an exit code."""
-    console = Console()
+def _render(
+    path: Path,
+    report: VerificationReport,
+    console: Console | None = None,
+) -> int:
+    """Print the report as Rich tables. Returns an exit code.
+
+    Accepts an optional pre-created Console so the caller can record
+    everything for --save. If omitted, a fresh one is created.
+    """
+    if console is None:
+        console = Console()
     console.print(
         Panel(f"[bold cyan]XDF verification[/bold cyan]\n{path}", expand=False)
     )
@@ -699,6 +708,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Show only the phase summary, not the per-marker rows.",
     )
+    parser.add_argument(
+        "--save",
+        nargs="?",
+        const="__auto__",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Save the full verifier + timeline output to a text file in "
+            "addition to printing it. With no argument, defaults to "
+            "<xdf_stem>_verify_output.txt next to the XDF."
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -710,14 +731,17 @@ def main(argv: list[str] | None = None) -> int:
     # Parse the XDF once and share it between the verifier and timeline.
     streams, header = pyxdf.load_xdf(str(xdf_path))
     report = verify(xdf_path, streams=streams, header=header)
-    exit_code = _render(xdf_path, report)
+
+    # Single recording console so --save captures the whole report plus
+    # the timeline in one file.
+    console = Console(record=bool(args.save))
+    exit_code = _render(xdf_path, report, console=console)
 
     if not args.no_timeline:
         # Late import so verify_xdf.py remains usable even if
         # timeline_xdf.py is removed / renamed in the future.
         from timeline_xdf import render_timeline  # noqa: PLC0415
 
-        console = Console()
         console.print()
         console.print(
             Panel(
@@ -731,6 +755,16 @@ def main(argv: list[str] | None = None) -> int:
             console=console,
             show_details=not args.timeline_summary_only,
         )
+
+    if args.save:
+        if args.save == "__auto__":
+            save_path = xdf_path.parent / f"{xdf_path.stem}_verify_output.txt"
+        else:
+            save_path = Path(args.save).expanduser()
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path.write_text(console.export_text(clear=False))
+        # Echo location at the bottom of the terminal output.
+        console.print(f"\n[green]saved full report to[/green] {save_path}")
 
     return exit_code
 

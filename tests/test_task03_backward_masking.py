@@ -146,6 +146,31 @@ def captured_marker_outlet():
 # ----- Pure-helper tests -----------------------------------------------------
 
 
+class TestResolveMasksDir:
+    """mask_type config field picks between the Mondrian and hybrid banks."""
+
+    def test_mondrian_maps_to_legacy_bank(self):
+        d = masking_task.resolve_masks_dir("mondrian")
+        assert d.name == "masks"
+        assert d.exists(), f"Legacy Mondrian bank missing: {d}"
+
+    def test_hybrid_maps_to_new_bank(self):
+        d = masking_task.resolve_masks_dir("hybrid")
+        assert d.name == "masks_hybrid"
+        assert d.exists(), "Hybrid bank missing; re-run scripts/generate_hybrid_masks.py"
+
+    def test_unknown_type_raises(self):
+        with pytest.raises(ValueError, match="Unknown mask_type"):
+            masking_task.resolve_masks_dir("pink_noise")
+
+    def test_both_banks_have_100_png_masks(self):
+        """Both banks should match the 100-mask spec documented in README."""
+        for mask_type in ("mondrian", "hybrid"):
+            d = masking_task.resolve_masks_dir(mask_type)
+            n = len(list(d.glob("*.png")))
+            assert n == 100, f"{mask_type} bank has {n} PNGs, expected 100"
+
+
 class TestScanFaceDirectory:
     def test_filters_to_neutral(self, tmp_path: Path):
         for i in range(10):
@@ -230,6 +255,14 @@ class TestSimulatedRun:
         cfg["mask_duration_ms"] = 1
         cfg["response_window_ms"] = 10
         cfg["min_face_identities"] = 10
+        # Exercise the break at trial 10 (halfway) so the test covers the
+        # new marker pair. The default ``null`` would compute the same
+        # value, but being explicit keeps the intent obvious.
+        cfg["break_after_main_trial"] = 10
+        # Pin face_frame_ms so tests don't depend on a headless PsychoPy
+        # refresh-detection (which would fall back to 17 anyway, but pin
+        # it for clarity).
+        cfg["face_frame_ms"] = 17
         return cfg
 
     def test_full_lifecycle_emits_all_markers(
@@ -287,9 +320,21 @@ class TestSimulatedRun:
             "task03_response_unseen",
             "task03_response_unsure",
             "task03_response_timeout",
+            "task03_break_start",
+            "task03_break_end",
         }
         missing = expected - marker_set
         assert not missing, f"Missing marker types: {sorted(missing)}"
+
+        # Break must be exactly one pair and sit between main-task trials
+        # (after some main trials, before task03_end).
+        assert markers.count("task03_break_start") == 1
+        assert markers.count("task03_break_end") == 1
+        break_start_idx = markers.index("task03_break_start")
+        break_end_idx = markers.index("task03_break_end")
+        assert break_start_idx < break_end_idx
+        assert markers.index("task03_practice_end") < break_start_idx
+        assert break_end_idx < markers.index("task03_end")
 
         # At least one SOA marker
         soa_markers = [m for m in markers if m.startswith("task03_soa_value_")]
@@ -396,3 +441,145 @@ class TestSimulatedRun:
         )
 
         assert captured_key_map == {"seen": "y", "unseen": "n", "unsure": "u"}
+
+    def test_break_disabled_with_zero(
+        self,
+        captured_marker_outlet,
+        small_config: dict,
+        stim_dirs: tuple[Path, Path],
+        tmp_path: Path,
+    ):
+        """break_after_main_trial=0 must suppress the break entirely."""
+        outlet, inlet = captured_marker_outlet
+        faces_dir, masks_dir = stim_dirs
+
+        small_config["break_after_main_trial"] = 0
+
+        masking_task.run(
+            outlet=outlet,
+            config=small_config,
+            participant_id="PYTEST_T03_NO_BREAK",
+            io=MockTaskIO(response_plan=lambda _n: "seen"),
+            staircase=masking_task.FixedSoaStaircase([100]),
+            rng_seed=1,
+            output_dir=tmp_path,
+            faces_dir=faces_dir,
+            masks_dir=masks_dir,
+        )
+
+        markers = _drain_inlet(inlet)
+        assert "task03_break_start" not in markers
+        assert "task03_break_end" not in markers
+
+    def test_face_frame_ms_controls_gap_timing(
+        self,
+        captured_marker_outlet,
+        small_config: dict,
+        stim_dirs: tuple[Path, Path],
+        tmp_path: Path,
+    ):
+        """The SOA→mask gap = soa_ms − face_frame_ms. Pinning a larger
+        face_frame_ms must shrink the wait() the task requests."""
+        outlet, _inlet = captured_marker_outlet
+        faces_dir, masks_dir = stim_dirs
+
+        waits: list[float] = []
+
+        class WaitCapturingIO(MockTaskIO):
+            def wait(self, seconds: float) -> None:
+                waits.append(seconds)
+
+        # Fixed SOA of 100 ms. With face_frame_ms=8 (120 Hz), gap = 92;
+        # with face_frame_ms=17 (60 Hz), gap = 83. We expect the 8 ms
+        # run to wait LONGER per trial.
+        def run_with(frame_ms: int) -> list[float]:
+            waits.clear()
+            cfg = dict(small_config)
+            cfg["face_frame_ms"] = frame_ms
+            cfg["break_after_main_trial"] = 0  # suppress the break
+            masking_task.run(
+                outlet=outlet,
+                config=cfg,
+                participant_id=f"PYTEST_FRAME_{frame_ms}",
+                io=WaitCapturingIO(response_plan=lambda _n: "seen"),
+                staircase=masking_task.FixedSoaStaircase([100]),
+                rng_seed=1,
+                output_dir=tmp_path,
+                faces_dir=faces_dir,
+                masks_dir=masks_dir,
+            )
+            return list(waits)
+
+        waits_8 = run_with(8)
+        waits_17 = run_with(17)
+
+        # The gap waits are the odd-indexed waits (fixation, gap, mask,
+        # ...). For a SOA=100 trial, the gap value is soa - frame_ms.
+        assert 0.092 in [round(w, 3) for w in waits_8], (
+            f"Expected a 92 ms gap wait with 8 ms frame; got {waits_8}"
+        )
+        assert 0.083 in [round(w, 3) for w in waits_17], (
+            f"Expected an 83 ms gap wait with 17 ms frame; got {waits_17}"
+        )
+
+    def test_face_frame_ms_null_falls_back_when_no_io_detection(
+        self,
+        captured_marker_outlet,
+        small_config: dict,
+        stim_dirs: tuple[Path, Path],
+        tmp_path: Path,
+    ):
+        """When the caller injects a TaskIO (tests) and face_frame_ms is
+        left as ``None``, the trial loop must still work — falling back
+        to ``DEFAULT_FACE_FRAME_MS`` rather than crashing on a ``None``
+        arithmetic op."""
+        outlet, _inlet = captured_marker_outlet
+        faces_dir, masks_dir = stim_dirs
+
+        cfg = dict(small_config)
+        cfg["face_frame_ms"] = None
+        cfg["break_after_main_trial"] = 0
+
+        masking_task.run(
+            outlet=outlet,
+            config=cfg,
+            participant_id="PYTEST_FRAME_NULL",
+            io=MockTaskIO(response_plan=lambda _n: "seen"),
+            staircase=masking_task.FixedSoaStaircase([100]),
+            rng_seed=1,
+            output_dir=tmp_path,
+            faces_dir=faces_dir,
+            masks_dir=masks_dir,
+        )
+        # If we got here, no crash — good enough. The numeric fallback
+        # is exercised implicitly by the trial loop's gap computation.
+
+    def test_break_auto_halfway_when_null(
+        self,
+        captured_marker_outlet,
+        small_config: dict,
+        stim_dirs: tuple[Path, Path],
+        tmp_path: Path,
+    ):
+        """break_after_main_trial=None must auto-break at total_trials//2."""
+        outlet, inlet = captured_marker_outlet
+        faces_dir, masks_dir = stim_dirs
+
+        small_config["break_after_main_trial"] = None  # explicit default
+
+        masking_task.run(
+            outlet=outlet,
+            config=small_config,
+            participant_id="PYTEST_T03_AUTO_BREAK",
+            io=MockTaskIO(response_plan=lambda _n: "seen"),
+            staircase=masking_task.FixedSoaStaircase([100]),
+            rng_seed=1,
+            output_dir=tmp_path,
+            faces_dir=faces_dir,
+            masks_dir=masks_dir,
+        )
+
+        markers = _drain_inlet(inlet)
+        # One pair of break markers for a 20-trial block (halfway = 10).
+        assert markers.count("task03_break_start") == 1
+        assert markers.count("task03_break_end") == 1

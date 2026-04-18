@@ -87,6 +87,36 @@ task03_backward_masking:
   face_size_px: 768
   n_mondrian_masks: 100
   min_face_identities: 10
+  # Mask bank used for the backward-masking overlay. Two options, both
+  # committed to the repo so they're swappable without regeneration:
+  #   "hybrid"   -- Mondrian + block-scrambled KDEF face composite
+  #                 (stimuli/masks_hybrid/). Default. Masks the mid-SF
+  #                 face-identity band that pure Mondrians leave exposed.
+  #   "mondrian" -- original pure-Mondrian bank (stimuli/masks/). Kept
+  #                 as a fallback and a baseline for any post-hoc
+  #                 comparison of mask-type effects.
+  # Set via scripts/generate_hybrid_masks.py and
+  # scripts/generate_mondrians.py respectively.
+  mask_type: "hybrid"
+  # Mid-task spacebar-gated break. Integer = main-task trial number to
+  # break AFTER (participant presses space to resume). ``null`` means
+  # "halfway" — auto-computed as ``total_trials // 2``. ``0`` disables
+  # the break entirely. Emits task03_break_start / task03_break_end on
+  # P013_Task_Markers so analysis can exclude the pause window.
+  break_after_main_trial: null
+  # ImageStim.contrast applied to the face target (1.0 = native KDEF
+  # contrast, 0.5 = half signal, 0 = grey). Pilots on 2026-04-17 showed
+  # that high-sensitivity participants saturate at 100% seen even at
+  # the 17 ms floor SOA; dropping contrast to 0.5 pushed the 50%
+  # threshold to a real within-range SOA (24 ms in the Nicco pilot) so
+  # QUEST can do its job. Lower values make the task harder.
+  face_contrast: 0.5
+  # Target face duration per trial, in ms. ``null`` (default) means
+  # "auto-detect from the monitor's actual refresh rate at runtime"
+  # (60 Hz → 17, 120 Hz → 8, etc.). Setting an explicit integer pins
+  # the value — useful for headless tests and for reproducing a run on
+  # different hardware.
+  face_frame_ms: null
 
 task04_mind_state:
   game_duration_s: 300

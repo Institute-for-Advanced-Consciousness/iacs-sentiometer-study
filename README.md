@@ -207,6 +207,19 @@ For sub-ms alignment with EEG, use the `wallTimeMs` field from the `ramp_start` 
 
 **Primary endpoint:** *stability test* — no significant frequency-dependent modulation of the Sentiometer signal across the ramp. EEG entrainment at the commanded effective Hz is the positive control.
 
+### TODO when real data starts arriving
+
+Build one synchronised long-format file per session covering every domain
+of interest — EEG (64 ch), CGX AIM-2 (13 ch, with ExGa 1–4 renamed to the
+AASM derivations), Sentiometer (5 PDs), task marker labels, and the
+**analytically-reconstructed Vayl effective SSVEP Hz** (computed from the
+single `ramp_start` JSON event using the one-liner above; the production
+config deliberately omits a continuous Hz stream). Output goes under
+`outputs/<SUBJECT>/preprocessed/`. See [`CLAUDE.md`](CLAUDE.md) → "Data
+Analysis → TODO" for the full workflow notes and the rationale behind
+leaving the per-tick Hz reconstruction to preprocessing rather than
+pushing it live on `P013_Task_Markers`.
+
 ### Verifying + timeline-ing a recorded XDF
 
 ```bash

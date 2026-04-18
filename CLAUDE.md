@@ -518,6 +518,47 @@ Note: The KDEF neutral faces and procedurally-generated Mondrian masks for Task 
 
 ## Data Analysis (reading this back when you have XDFs)
 
+### TODO — prepare first when data starts arriving
+
+**Build a synchronised per-domain time-series for each session.** Once the
+RAs bring back the real P013 XDFs, the first analysis step is to pivot
+every stream onto a common LSL time axis and write out one long-format
+CSV (or parquet) per session that contains, column-wise:
+
+- `t_lsl` — the synchronised LSL timestamp (`pylsl.local_clock()`)
+- EEG channels (64) from `BrainAmpSeries-Dev_1` at 500 Hz
+- CGX AIM-2 channels (13, with `ExGa 1-4` renamed to E1-M2 / E2-M1 /
+  ChinZ-Chin1 / Chin2-Chin1prime per the P013 montage) at 500 Hz
+- Sentiometer channels (5 photodiodes + device_ts) at 500 Hz
+- **Vayl effective SSVEP Hz at each timepoint** — there is no
+  dedicated continuous stream in the production config; compute it
+  analytically from the `ramp_start` JSON marker on
+  `P013_Task_Markers`. The formula is deterministic and exact (no
+  extrapolation / no estimate): linear interpolation of the commanded
+  ramp from `stimFreqHz` to `stimFreqEndHz` over `durationSeconds`,
+  clipped to 0 outside the ramp window. Anchor to `wallTimeMs` (sub-ms
+  GPU onset) rather than the LSL timestamp for sub-ms EEG alignment.
+- Task marker columns (one-hot or categorical) derived from
+  `P013_Task_Markers` so each epoch has the right paradigm / trial
+  label attached.
+
+Rationale we already discussed (2026-04-17): we decided NOT to push a
+per-sample Hz tick onto `P013_Task_Markers` at stim time. The ramp is
+fully specified by the `ramp_start` JSON, so reconstructing it at
+preprocessing is mathematically identical to streaming it live and
+keeps the XDF single-stream for LabRecorder. See
+`README.md#marker-reference-for-data-analysis` → Task 05 for the
+formula snippet; a `analysis/vayl_hz.py` helper is planned for when
+the first real sessions come in (to wrap `load_ramp_spec(xdf)` +
+`eff_hz_at(t, spec)` so every downstream script uses the same
+canonical function).
+
+Keep the preprocessing output under `outputs/<SUBJECT>/preprocessed/`
+so it sits next to the Paller-handoff bundle produced by
+`scripts/xdf_to_edf/run_all.py`.
+
+### General analysis context
+
 If you're returning to this project to analyse recorded sessions, the code
 for *running* a session has done its job — every paradigm's stimulus + timing
 is captured in `P013_Task_Markers` with marker strings that uniquely name

@@ -634,6 +634,43 @@ most common epoching anchors:
   `task03_soa_value_XXX` marker that immediately follows the response.
   Split epochs by the response label (`task03_response_seen` /
   `_unseen` / `_unsure` / `_timeout`) to get the hit / miss contrast.
+
+  **Core analytical principle — matched-duration contrast.** The whole
+  point of Task 03 is to compare trials where the face was physically
+  present at the retina for *exactly the same amount of time* but the
+  subjective experience differed (seen vs. unseen). The SOA varies
+  throughout the task because QUEST is adaptive for the full main
+  block (no fixed-SOA phase — design decision 2026-04-17 after pilots
+  showed adaptive is more robust to fatigue drift than Phase A/B), so
+  the analysis must filter post-hoc to a matched-SOA band.
+  Recommended workflow:
+
+  1. Read all main-block face trials from the behavioural CSV; drop
+     catches, `timeout` responses, and trials inside the
+     `[task03_break_start, task03_break_end]` window.
+  2. Compute the converged SOA: median of `soa_ms` across the last
+     ~50 face trials (QUEST oscillates around threshold by then).
+  3. Define the matched band: converged SOA ± 2 ms (or ± 5 ms if
+     counts are thin). Every trial inside this band has effectively
+     identical physical stimulation.
+  4. Within the band, split trials three ways: `seen`, `unseen`,
+     `unsure`. Drop `unsure` for the primary contrast (it was ignored
+     during QUEST too) or keep it as a graded-confidence bucket.
+  5. Contrast Sentiometer / EEG on seen vs. unseen. Any systematic
+     difference is a correlate of conscious experience, not of
+     stimulus timing — because timing is matched by construction.
+
+  **Covariates to record per-session from `config_snapshot`:**
+  `mask_type` (hybrid vs. mondrian), `face_contrast` (1.0 native vs.
+  0.5 default), and `face_frame_ms` (auto-detected). Pilots on
+  2026-04-17 showed high-sensitivity participants floor at 17 ms with
+  `face_contrast: 1.0` but converge to a real within-range threshold
+  at 0.5 — so grouping across participants must control for contrast
+  or you'll mix floor-bound and in-range subjects.
+
+  **Don't epoch across the break.** `task03_break_start` →
+  `task03_break_end` is a variable-length pause; exclude it from any
+  continuous / time-averaged metric.
 - **Task 04 mind-state** — use `task04_game_start` → `task04_game_end` and
   `task04_meditation_start` → `task04_meditation_end` as the two
   condition windows. `task04_break_*` is transition, not a condition.

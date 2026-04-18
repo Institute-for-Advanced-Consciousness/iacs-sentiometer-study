@@ -140,7 +140,7 @@ tick captures everything.
 
 ### Task 03 — Backward Masking (QUEST)
 
-**Trial structure (main block):** 500 ms fixation → 1-frame face (or gray for catch) → (SOA − 17 ms) gray + fixation gap → 200 ms Mondrian mask → 1500 ms response prompt.
+**Trial structure (main block):** 500 ms fixation → 1-frame face at reduced contrast (or gray for catch) → (SOA − frame_ms) gray + fixation gap → 200 ms hybrid mask → 1500 ms response prompt. The single-frame duration is auto-detected from the monitor's refresh rate at runtime (60 Hz → 17 ms; 120 Hz → 8 ms). Face contrast defaults to 0.5 (see pilots 2026-04-17); the mask bank is the Mondrian + scrambled-face composite (`stimuli/masks_hybrid/`).
 
 | Marker | When it fires | How to use |
 |---|---|---|
@@ -155,8 +155,17 @@ tick captures everything.
 | `task03_response_seen` / `_unseen` / `_unsure` | Keypress within 1500 ms | Maps to F / J / Space. `(response_time − mask_onset)` = RT |
 | `task03_response_timeout` | No keypress within 1500 ms | |
 | `task03_soa_value_XXX` | After every main-block face-present response | `XXX` is the zero-padded SOA in ms (e.g. `task03_soa_value_067`). One per face trial; catch + practice trials never emit this |
+| `task03_break_start` / `_end` | Spacebar-gated rest at trial N/2 | Exclude this window from any time-averaged metric |
 
-**Primary endpoint:** epoch on `task03_face_onset`, split by response label (seen vs. unseen) at SOAs near threshold, compare Sentiometer amplitude. EEG VAN (~200 ms) and P3b (~350 ms) are positive controls.
+**Primary endpoint — matched-duration contrast.** The scientific question is whether Sentiometer / EEG differentiates trials on which the face was physically present for the *same duration* but the participant's subjective experience differed. Because QUEST runs adaptively for the full main block (no fixed-SOA phase — the 2026-04-17 pilots showed adaptive handles fatigue drift better), analysis must filter to a matched-SOA band post-hoc:
+
+1. Drop catches, `task03_response_timeout` trials, and the `[break_start, break_end]` window.
+2. Compute the converged SOA as the median of `soa_ms` over the last ~50 face trials.
+3. Keep trials whose `soa_ms` is within ±2 ms (tight) or ±5 ms (generous) of that value. Every retained trial has effectively identical physical stimulation.
+4. Split by response label: `seen` vs. `unseen` (primary contrast); `unsure` kept separately as a graded-confidence bucket.
+5. Contrast Sentiometer amplitude and the EEG positive controls (VAN ~200 ms, P3b ~350 ms) across the matched-SOA seen-vs-unseen bins.
+
+Controls to record per-session from `config_snapshot`: `mask_type`, `face_contrast`, `face_frame_ms`. Floor-bound participants (true threshold below one frame) will pin at `face_frame_ms`; their matched-SOA contrast still works but the balance will skew toward seen at full contrast — lower `face_contrast` before grouping.
 
 ### Task 04 — Mind-State Switching (Gameplay vs. Meditation)
 

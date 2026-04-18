@@ -6,6 +6,27 @@ session:
   participant_id: ""  # Set at launch
   session_date: ""    # Auto-filled
 
+task00_questionnaire:
+  # P013 Pre-Session Questionnaire (POMS + FFMQ + PSQI + ESS + SSS).
+  # Owned by the IACS team; responses land in the "P013 PRE" Google Sheet.
+  form_url: "https://docs.google.com/forms/d/e/1FAIpQLSfSJjvXKt1CDbdW17_mOkpSndQk1DqgFoOjVbkAShDR7eNagA/viewform"
+  # Pre-fill the participant ID into the form's first question so the
+  # participant only has to review it rather than retype. The entry ID
+  # below corresponds to "What is your Participant ID?" on the current
+  # form (extracted from FB_PUBLIC_LOAD_DATA_ on 2026-04-17).
+  prefill_participant_id: true
+  participant_id_entry_id: "entry.1536440908"
+  # Substring we watch for in the webview URL to detect a successful
+  # submit. Google's post-submit URL is
+  #   https://docs.google.com/forms/u/0/d/e/<FORM_ID>/formResponse
+  # so "formResponse" is a robust match regardless of locale or query
+  # string.
+  submission_url_marker: "formResponse"
+  window_title: "P013 Pre-Session Questionnaire"
+  fullscreen: true
+  # Demo mode bypasses the form entirely (task00_demo_skipped marker).
+  demo_skip: true
+
 task01_oddball:
   total_trials: 250
   deviant_probability: 0.20

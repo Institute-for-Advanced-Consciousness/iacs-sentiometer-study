@@ -30,9 +30,12 @@ CLI flags:
 * ``--participant-id P001``   Participant ID. Prompted interactively if omitted.
 * ``--demo``                  Pass ``demo=True`` to every task and skip the
                               LSL-stream-presence checks in the pre-flight.
-* ``--skip-to N``             Start from task ``N`` (1-5). Tasks 1..N-1 are
-                              marked ``skipped`` in the session log. Useful
-                              for recovery after a mid-session crash.
+* ``--skip-to N``             Start from task ``N`` (1-6, where 1 = Task 00
+                              questionnaire, 2 = Task 01, ..., 6 = Task 05).
+                              Tasks 1..N-1 are marked ``skipped`` in the
+                              session log. Useful for recovery after a mid-
+                              session crash or to bypass the questionnaire
+                              (``--skip-to 2``).
 * ``--config PATH``           Override the session config YAML location.
 
 The core :func:`run_session` function is exposed for tests with an
@@ -79,7 +82,13 @@ DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 # (config section key, importable module path). The launcher iterates over
 # this list in order and feeds each entry into importlib.import_module, which
 # correctly handles the digit-prefixed directory names.
+#
+# Task 00 is the pre-session questionnaire (Google Form in an embedded
+# webview). It runs FIRST so the RA can walk out of the room before the
+# Sentiometer-recorded tasks begin — the Sentiometer is sensitive to
+# multiple consciousnesses in the room, so a clean solo baseline matters.
 TASK_ORDER: list[tuple[str, str]] = [
+    ("task00_questionnaire", "tasks.00_questionnaire.task"),
     ("task01_oddball", "tasks.01_oddball.task"),
     ("task02_rgb_illuminance", "tasks.02_rgb_illuminance.task"),
     ("task03_backward_masking", "tasks.03_backward_masking.task"),
@@ -88,6 +97,7 @@ TASK_ORDER: list[tuple[str, str]] = [
 ]
 
 TASK_DISPLAY_NAMES: dict[str, str] = {
+    "task00_questionnaire": "Task 00 -- Pre-Session Questionnaire",
     "task01_oddball": "Task 01 -- Auditory Oddball (P300)",
     "task02_rgb_illuminance": "Task 02 -- RGB Illuminance",
     "task03_backward_masking": "Task 03 -- Backward Masking",
@@ -534,7 +544,11 @@ def run_session(
     "--skip-to",
     type=int,
     default=1,
-    help="Start from task N (1-5). Tasks 1..N-1 are marked skipped. Crash recovery.",
+    help=(
+        "Start from task N (1-6, where 1 = Task 00 questionnaire, "
+        "2 = Task 01, ..., 6 = Task 05). Tasks 1..N-1 are marked skipped. "
+        "Crash recovery or bypass the questionnaire with --skip-to 2."
+    ),
 )
 @click.option(
     "--config",

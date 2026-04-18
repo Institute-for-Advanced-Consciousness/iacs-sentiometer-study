@@ -29,6 +29,10 @@ dev = [
     "pyxdf>=1.16",
     "numpy>=1.26",
     "pyedflib>=0.1.38",
+    # PDF manifest for the Paller PSG handoff bundle (scripts/xdf_to_edf/).
+    "reportlab>=4.0",
+    # BrainVision .rwksp cross-check in scripts/xdf_to_edf/01_inspect.py.
+    "olefile>=0.47",
 ]
 tasks = [
     "psychopy>=2024.1",
@@ -40,6 +44,10 @@ tasks = [
     # wheels and fails to build from source against modern clang. Force a modern pyobjc
     # so uv installs prebuilt wheels.
     'pyobjc>=10; sys_platform == "darwin"',
+    # Task 00 embeds the Google Form in a native webview so the participant
+    # can fill out the questionnaire without the RA in the room. macOS uses
+    # the system WKWebView (no extra runtime to install).
+    "pywebview>=5.0",
 ]
 
 # PsychoPy pins pyglet==1.5.27 on macOS, but that version's Cocoa bridge

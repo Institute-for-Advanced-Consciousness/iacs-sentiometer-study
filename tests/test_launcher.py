@@ -9,9 +9,11 @@ call so no stdin is read during the test.
 
 Covered:
 
-* End-to-end ``run_session`` calls all five tasks in order and writes a
-  valid ``session_log.json``.
+* End-to-end ``run_session`` calls all six tasks in order (Task 00
+  questionnaire + Tasks 01–05) and writes a valid ``session_log.json``.
 * ``--skip-to N`` marks tasks 1..N-1 as skipped and starts from task N.
+  Skip-to values are 1-indexed into ``TASK_ORDER`` so ``--skip-to 2``
+  bypasses the questionnaire.
 * ``demo=True`` propagates into every task_runner invocation.
 * ``KeyboardInterrupt`` mid-session saves a partial ``session_log.json``
   with ``status='aborted'`` and ``aborted_during`` set to the in-progress
@@ -85,6 +87,7 @@ class TestFullRun:
         assert result["status"] == "completed"
         task_sequence = [c["task_name"] for c in runner.calls]
         assert task_sequence == [
+            "task00_questionnaire",
             "task01_oddball",
             "task02_rgb_illuminance",
             "task03_backward_masking",
@@ -130,6 +133,7 @@ class TestFullRun:
 
         # Every task has a completed status with start + end timestamps
         for task_name in [
+            "task00_questionnaire",
             "task01_oddball",
             "task02_rgb_illuminance",
             "task03_backward_masking",
@@ -143,18 +147,23 @@ class TestFullRun:
 
 
 class TestSkipTo:
-    def test_skip_to_3_marks_early_tasks_skipped(self, tmp_path: Path):
+    def test_skip_to_4_marks_early_tasks_skipped(self, tmp_path: Path):
+        """skip_to=4 starts at TASK_ORDER[3] (= task03_backward_masking).
+
+        With Task 00 at TASK_ORDER[0], 1-indexed positions are:
+        1=task00, 2=task01, 3=task02, 4=task03, 5=task04, 6=task05.
+        """
         runner = RecordingRunner()
         launcher_mod.run_session(
             participant_id="PYTEST_SKIP",
             demo=True,
-            skip_to=3,
+            skip_to=4,
             data_root=tmp_path,
             interactive=False,
             task_runner=runner,
         )
 
-        # Only tasks 3, 4, 5 were actually called
+        # Only tasks 03, 04, 05 were actually called
         task_sequence = [c["task_name"] for c in runner.calls]
         assert task_sequence == [
             "task03_backward_masking",
@@ -162,15 +171,34 @@ class TestSkipTo:
             "task05_ssvep",
         ]
 
-        # Session log marks tasks 1 and 2 as skipped
+        # Session log marks tasks 00, 01, 02 as skipped
         log_path = tmp_path / "PYTEST_SKIP" / "session_log.json"
         data = json.loads(log_path.read_text())
+        assert data["tasks"]["task00_questionnaire"]["status"] == "skipped"
+        assert data["tasks"]["task00_questionnaire"]["reason"] == "skip_to=4"
         assert data["tasks"]["task01_oddball"]["status"] == "skipped"
-        assert data["tasks"]["task01_oddball"]["reason"] == "skip_to=3"
         assert data["tasks"]["task02_rgb_illuminance"]["status"] == "skipped"
         assert data["tasks"]["task03_backward_masking"]["status"] == "completed"
         assert data["tasks"]["task04_mind_state"]["status"] == "completed"
         assert data["tasks"]["task05_ssvep"]["status"] == "completed"
+
+    def test_skip_to_2_bypasses_questionnaire(self, tmp_path: Path):
+        """Common case: skip the questionnaire and start with Task 01."""
+        runner = RecordingRunner()
+        launcher_mod.run_session(
+            participant_id="PYTEST_SKIP_Q",
+            demo=True,
+            skip_to=2,
+            data_root=tmp_path,
+            interactive=False,
+            task_runner=runner,
+        )
+        task_sequence = [c["task_name"] for c in runner.calls]
+        assert task_sequence[0] == "task01_oddball"
+        assert "task00_questionnaire" not in task_sequence
+        log_path = tmp_path / "PYTEST_SKIP_Q" / "session_log.json"
+        data = json.loads(log_path.read_text())
+        assert data["tasks"]["task00_questionnaire"]["status"] == "skipped"
 
     def test_skip_to_out_of_range_raises(self, tmp_path: Path):
         with pytest.raises(ValueError, match="skip_to must be in"):
@@ -186,7 +214,7 @@ class TestSkipTo:
             launcher_mod.run_session(
                 participant_id="PYTEST_OOR",
                 demo=True,
-                skip_to=6,
+                skip_to=7,
                 data_root=tmp_path,
                 interactive=False,
                 task_runner=RecordingRunner(),
@@ -242,7 +270,8 @@ class TestAbort:
         assert data["status"] == "aborted"
         assert data["aborted_during"] == "task03_backward_masking"
 
-        # Earlier tasks still marked completed
+        # Earlier tasks still marked completed (task00 questionnaire + 01 + 02)
+        assert data["tasks"]["task00_questionnaire"]["status"] == "completed"
         assert data["tasks"]["task01_oddball"]["status"] == "completed"
         assert data["tasks"]["task02_rgb_illuminance"]["status"] == "completed"
 
@@ -253,9 +282,10 @@ class TestAbort:
         assert "task04_mind_state" not in data["tasks"]
         assert "task05_ssvep" not in data["tasks"]
 
-        # Only tasks 1 and 2 ever reached the runner (task 3 raised before return)
+        # Only tasks 00-03 ever reached the runner (task 3 raised before return)
         task_sequence = [c["task_name"] for c in runner.calls]
         assert task_sequence == [
+            "task00_questionnaire",
             "task01_oddball",
             "task02_rgb_illuminance",
             "task03_backward_masking",

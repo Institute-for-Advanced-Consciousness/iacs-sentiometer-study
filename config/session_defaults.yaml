@@ -36,7 +36,12 @@ task01_oddball:
   rise_fall_ms: 10
   response_window_ms: 1000
   volume: 1.0
-  max_consecutive_standards: 4  # min feasible for 200/50 split = ceil(200/51) = 4
+  # Gap-size bounds between deviants (and before/after the first/last).
+  # With min=1 / max=10 the generator samples varied gap sizes across the
+  # buckets instead of the near-uniform 3-or-4 stratified placement
+  # produced, so the deviants feel less predictable to the participant.
+  max_consecutive_standards: 10
+  min_consecutive_standards: 1
   # Practice gate (run before main task; repeats until participant passes).
   # Structure is fixed in code: one deviant per gap size in {1,2,3,4}, gaps
   # shuffled per attempt. That's always 4 deviants + 10 standards = 14

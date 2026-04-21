@@ -662,31 +662,41 @@ class GuiLauncher:
                 interactive=False,
                 task_runner=self._gui_task_runner,
                 outlet=self.outlet,
+                show_final=True,
             )
             if not self.abort_requested:
                 self._log("=" * 40)
                 self._log("SESSION COMPLETE")
                 self._log("=" * 40)
                 self._set_status("Session complete")
+                session_completed_cleanly = True
             else:
                 self._set_status("Session aborted")
+                session_completed_cleanly = False
         except Exception as exc:  # noqa: BLE001
             self._log(f"ERROR: {exc}")
             self._log(traceback.format_exc())
             self._set_status("Session failed — see log")
+            session_completed_cleanly = False
         finally:
-            # Bring the launcher back so the RA can see the event log and
-            # task statuses. Do this before swapping outlets so the user
-            # gets visual feedback immediately.
-            try:
-                self.root.deiconify()
-                self.root.lift()
-                self.root.focus_force()
-            except tk.TclError:
-                pass
-            # Outlet stays alive between sessions (idempotent _open_outlet
-            # is a no-op once set). Real cleanup happens in _on_close.
-            self._reset_ui_after_session()
+            # On clean completion the RA has already dismissed the
+            # fullscreen "session complete" screen — everything closes.
+            # On abort / error, bring the launcher back so the RA can
+            # review the event log before closing manually.
+            if session_completed_cleanly:
+                self.session_active = False
+                self._ui_queue.put(self._on_close)
+            else:
+                try:
+                    self.root.deiconify()
+                    self.root.lift()
+                    self.root.focus_force()
+                except tk.TclError:
+                    pass
+                # Outlet stays alive between sessions (idempotent
+                # _open_outlet is a no-op once set). Real cleanup happens
+                # in _on_close.
+                self._reset_ui_after_session()
 
     def _abort_session(self) -> None:
         self.abort_requested = True

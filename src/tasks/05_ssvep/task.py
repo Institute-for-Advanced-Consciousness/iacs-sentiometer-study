@@ -374,7 +374,14 @@ def _build_pygame_io(demo: bool) -> tuple[TaskIO, Callable[[], None]]:
         pygame.time.wait(int(seconds * 1000))
 
     def cleanup() -> None:
-        pygame.quit()
+        # Do NOT call ``pygame.quit()`` here. Tearing down SDL destroys
+        # the fullscreen window, which exposes the macOS desktop for
+        # the ~100 ms it takes the launcher's ``show_final_screen`` to
+        # build a new one — visible to the participant as a desktop
+        # flash. Leaving the window alive lets ``show_final_screen``
+        # draw straight onto the already-black surface. SDL cleans up
+        # at interpreter exit.
+        pass
 
     io = TaskIO(
         show_text_and_wait=show_text_and_wait,
@@ -472,8 +479,10 @@ def run(
     else:
         config = dict(config)
 
-    # Demo no longer shortens the ramp — RAs want to verify the full 5 min
-    # (300 s by default, sourced from config) to match the real protocol.
+    if demo:
+        config["ramp_duration_s"] = min(
+            float(config.get("ramp_duration_s", 30.0)), 30.0
+        )
 
     if output_dir is None:
         output_dir = DATA_DIR
@@ -552,18 +561,19 @@ def run(
                 }
             )
 
-        # Brief white flash, then hand the screen to Vayl. On macOS the
-        # Pygame window otherwise sits above Vayl's overlay and the
-        # stroboscope is invisible. Iconify is the pragmatic fix — the
-        # participant sees the checkerboard, not our backdrop.
+        # Show white, then leave the Pygame window up for the whole ramp.
+        # Vayl's fullscreen GPU overlay renders above our window, so we
+        # don't need to iconify — and not iconifying means there's no
+        # restore animation at the end of the task, which is what was
+        # causing the "minimize then come back" flicker right before the
+        # completion screen.
         #
         # ChromeHide flips on Dock + menu-bar auto-hide so Vayl's overlay
         # isn't framed by them while it runs. The RA's previous prefs are
         # restored in the `finally` block (covers abort + error paths too).
         chrome_hider.__enter__()
         io.show_solid((255, 255, 255))
-        io.wait(0.5)
-        io.iconify()
+        io.wait(0.3)
 
         # ----- Ramp -----
         start_hz = float(config["carrier_start_hz"])
@@ -614,12 +624,13 @@ def run(
 
         send_marker(outlet, "task05_overlay_off")
 
-        # ----- Restore Pygame window and show black -----
-        # chrome_hider is restored in the `finally` block below; doing it
-        # here too would be redundant.
-        io.restore()
-        io.show_solid((0, 0, 0))
-        io.wait(1.5)
+        # ----- Wait out Vayl's fade -----
+        # The Pygame window has been showing white this whole time; Vayl's
+        # overlay is fading out on top of it. When the fade completes the
+        # white background is already visible, so the launcher's
+        # completion screen can draw black text straight onto it. 0.5 s
+        # covers Vayl's 500 ms GPU fade with a small margin.
+        io.wait(0.5)
 
         log_path = _save_session_log(entries, participant_id, output_dir)
 

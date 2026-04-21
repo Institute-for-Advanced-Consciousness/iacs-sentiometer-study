@@ -326,6 +326,7 @@ def run_session(
     interactive: bool = True,
     task_runner: TaskRunner | None = None,
     outlet: StreamOutlet | None = None,
+    show_final: bool | None = None,
 ) -> dict:
     """Run a full session from pre-flight through post-task cleanup.
 
@@ -366,8 +367,11 @@ def run_session(
     dict
         The final session log, whether the session completed or aborted.
     """
+    runner_was_default = task_runner is None
     if task_runner is None:
         task_runner = _run_task
+    if show_final is None:
+        show_final = runner_was_default
     if config_path is None:
         config_path = DEFAULT_SESSION_CONFIG_PATH
     if data_root is None:
@@ -492,6 +496,13 @@ def run_session(
                     default="",
                     show_default=False,
                 )
+
+        if show_final:
+            try:
+                from tasks.common.instructions import show_final_screen
+                show_final_screen()
+            except Exception:  # noqa: BLE001
+                log.exception("Final screen failed to render")
 
         send_marker(outlet, "session_end")
         session_log["status"] = "completed"

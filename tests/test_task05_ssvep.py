@@ -240,12 +240,14 @@ class TestFullRunWithWorkingBridge:
         assert len(mock_bridge.wait_for_ramp_calls) == 1
         assert mock_bridge.turn_off_calls == 3
 
-        # Background fills: white flash before Vayl, black after.
+        # The Pygame window now stays up showing white for the whole
+        # ramp; Vayl's overlay renders above it, so we don't iconify and
+        # we don't flip to black at the end. The launcher's completion
+        # screen draws black text on the same white surface.
         assert (255, 255, 255) in mock_io.shown_solids
-        assert (0, 0, 0) in mock_io.shown_solids
-        # Iconify to hand the screen to Vayl; restore before the black fill.
-        assert mock_io.iconify_calls == 1
-        assert mock_io.restore_calls == 1
+        assert (0, 0, 0) not in mock_io.shown_solids
+        assert mock_io.iconify_calls == 0
+        assert mock_io.restore_calls == 0
         # Only the instructions screen prompts the participant — the
         # completion screen was removed so tasks flow without extra space
         # presses.

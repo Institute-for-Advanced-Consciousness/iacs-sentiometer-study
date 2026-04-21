@@ -80,16 +80,22 @@ def build_trial_sequence(
     n_total: int,
     deviant_probability: float,
     max_consecutive_standards: int,
+    min_consecutive_standards: int = 1,
     rng: random.Random | None = None,
 ) -> list[str]:
-    """Build a pseudorandom oddball trial sequence using stratified placement.
+    """Build a pseudorandom oddball trial sequence with varied gap sizes.
 
-    Distributes deviants so that the gaps of standards between (and around)
-    them are as even as possible, then shuffles the gap sizes to add jitter.
-    Honors *max_consecutive_standards* when feasible. If the requested value
-    is mathematically impossible for the given counts (e.g. 200 standards
-    with only 50 deviants cannot have all gaps ≤ 3), logs a warning and
-    relaxes to the minimum feasible value.
+    Splits the standards into ``n_deviants + 1`` buckets (gaps before,
+    between, and after deviants). Each bucket starts at
+    ``min_consecutive_standards`` and the remaining standards are added
+    one at a time to a uniformly-chosen bucket that still has headroom
+    under ``max_consecutive_standards``. Buckets are then shuffled. The
+    result is a random gap distribution that respects both bounds, rather
+    than the near-uniform gaps that stratified placement produces.
+
+    If the bounds are infeasible for the requested counts (``min * n_buckets
+    > n_standards`` or ``max * n_buckets < n_standards``), logs a warning
+    and relaxes the offending bound to the nearest feasible value.
 
     Returns a list of length *n_total* containing ``"standard"`` /
     ``"deviant"`` strings.
@@ -102,26 +108,43 @@ def build_trial_sequence(
         return [STANDARD] * n_standards
 
     n_buckets = n_deviants + 1
-    base, remainder = divmod(n_standards, n_buckets)
-    min_feasible_max_run = base + (1 if remainder else 0)
 
-    if min_feasible_max_run > max_consecutive_standards:
+    min_floor = max(0, min_consecutive_standards)
+    if min_floor * n_buckets > n_standards:
+        new_min = n_standards // n_buckets
+        log.warning(
+            "min_consecutive_standards=%d infeasible with %d standards / "
+            "%d deviants. Relaxing to %d.",
+            min_consecutive_standards, n_standards, n_deviants, new_min,
+        )
+        min_floor = new_min
+
+    max_ceil = max_consecutive_standards
+    min_feasible_max = -(-n_standards // n_buckets)  # ceil
+    if max_ceil < min_feasible_max:
         log.warning(
             "max_consecutive_standards=%d infeasible with %d standards / "
             "%d deviants (min feasible = %d). Relaxing constraint.",
-            max_consecutive_standards,
-            n_standards,
-            n_deviants,
-            min_feasible_max_run,
+            max_consecutive_standards, n_standards, n_deviants, min_feasible_max,
         )
+        max_ceil = min_feasible_max
 
-    bucket_sizes = [base + 1] * remainder + [base] * (n_buckets - remainder)
-    rng.shuffle(bucket_sizes)
+    buckets = [min_floor] * n_buckets
+    remaining = n_standards - min_floor * n_buckets
+    while remaining > 0:
+        candidates = [i for i, b in enumerate(buckets) if b < max_ceil]
+        if not candidates:
+            break
+        i = rng.choice(candidates)
+        buckets[i] += 1
+        remaining -= 1
+
+    rng.shuffle(buckets)
 
     seq: list[str] = []
-    for i, size in enumerate(bucket_sizes):
+    for i, size in enumerate(buckets):
         seq.extend([STANDARD] * size)
-        if i < len(bucket_sizes) - 1:
+        if i < n_buckets - 1:
             seq.append(DEVIANT)
     return seq
 
@@ -366,6 +389,7 @@ def _run_block(
             n_total=n_trials,
             deviant_probability=deviant_probability,
             max_consecutive_standards=config["max_consecutive_standards"],
+            min_consecutive_standards=config.get("min_consecutive_standards", 1),
             rng=rng,
         )
         isi_min_s = config["isi_min_ms"] / 1000.0

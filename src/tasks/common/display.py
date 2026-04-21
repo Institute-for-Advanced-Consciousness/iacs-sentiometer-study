@@ -17,6 +17,27 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+
+# PsychoPy's ``Window.__del__`` calls ``self.close()`` → ``self.backend.close()``
+# during garbage collection. If the backend was already torn down (typical on
+# a clean close or at interpreter shutdown) ``self.backend`` is ``None`` and
+# the destructor raises ``AttributeError: 'NoneType' object has no attribute
+# 'close'``. Python prints the traceback to stderr and — on macOS — the
+# terminal rings the system bell, which is audibly disruptive at the end of
+# a session. Patch the destructor to swallow the known-benign AttributeError
+# so session shutdown is quiet.
+def _safe_window_del(self: "Window") -> None:
+    try:
+        self.close()
+    except (AttributeError, Exception):  # noqa: BLE001
+        pass
+
+
+try:
+    visual.Window.__del__ = _safe_window_del  # type: ignore[method-assign]
+except Exception:  # noqa: BLE001
+    pass
+
 # Collected by flip_and_log; tasks can read this for post-hoc timing checks.
 flip_timestamps: list[float] = []
 

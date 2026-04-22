@@ -240,7 +240,7 @@ def main() -> int:
     # ----- Plot -------------------------------------------------------------
     fig, axes = plt.subplots(
         len(psd_table), 1,
-        figsize=(10, 2.0 * len(psd_table)),
+        figsize=(10, 2.8 * len(psd_table)),  # taller rows for readability
         sharex=True,
     )
     if len(psd_table) == 1:

@@ -371,22 +371,30 @@ def forensic_brainamp_first_120s(streams: list[dict], diag_dir: Path) -> dict:
     # ----- (4) raw traces for 4 representative channels -----
     h2("Writing raw trace PNG (Fp1, Cz, Oz, TP9)")
     picks = [(lbl, labels.index(lbl)) for lbl in REP_CHANNELS if lbl in labels]
-    fig, axes = plt.subplots(len(picks), 1, figsize=(14, 2.2 * len(picks)),
-                             sharex=True)
+    # Taller per-row (3.6 in vs 2.2 in) so each trace has room; sharey
+    # off so a saturating TP9 doesn't squash a clean Oz.
+    fig, axes = plt.subplots(len(picks), 1, figsize=(14, 3.6 * len(picks)),
+                             sharex=True, sharey=False)
     if len(picks) == 1:
         axes = [axes]
     for ax, (lbl, ci) in zip(axes, picks):
-        ax.plot(ts120, data120[:, ci], linewidth=0.35)
+        x = data120[:, ci]
+        # Demeaned per channel so DC offset doesn't push the trace off-screen.
+        x_dc = x - float(np.nanmean(x))
+        ax.plot(ts120, x_dc, linewidth=0.35)
         ax.axvline(55, color="red", linestyle="--", linewidth=0.8, alpha=0.7)
         ax.set_ylabel(f"{lbl}  (µV)")
-        # Symmetric y to highlight saturation, clamp to something sensible
-        y_abs = np.nanpercentile(np.abs(data120[:, ci]), 99.9)
-        ax.set_ylim(-y_abs * 1.2, y_abs * 1.2)
+        # Adaptive y from 2–98 percentile + 20% pad; never collapse to
+        # zero, never clip dramatic saturation spikes off-screen.
+        p2, p98 = np.nanpercentile(x_dc, [2.0, 98.0])
+        pad = max(5.0, 0.2 * (p98 - p2))
+        ax.set_ylim(p2 - pad, p98 + pad)
         ax.grid(alpha=0.3)
     axes[-1].set_xlabel("seconds from stream start")
     fig.suptitle(
         "BrainAmpSeries-Dev_1  —  first 120 s raw traces, representative channels "
-        "(red dashed = t=55 s)"
+        "(red dashed = t=55 s)."
+        "  Each row demeaned + auto-scaled per channel."
     )
     fig.tight_layout()
     traces_path = diag_dir /"eeg_time_course_first_2min.png"

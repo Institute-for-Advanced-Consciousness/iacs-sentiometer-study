@@ -40,26 +40,16 @@ from _common import (
 # the first 120 s. These are flagged but NOT excluded from the EDF —
 # Paller asked to see them explicitly so his lab can confirm the pilot
 # acquisition context.
-BAD_RAIL_CHANNELS = {
-    "TP9",
-    "TP7",
-    "F8",
-    "AF7",
-    "PO8",
-    "Iz",
-    "FT10",
-    "FT7",
-    "P8",
-    "F6",
-    "FT8",
-    "TP8",
-    "T7",
-    "O1",
-    "T8",
-    "TP10",
-    "AF8",
-}
-BORDERLINE_CHANNELS = {"FT9", "O2"}  # 10 – 50 % saturated (FT9) or noisy (O2)
+# Rail-saturation sets are now computed per-subject from the actual XDF
+# (see _compute_saturation). These module-level placeholders are populated
+# at the start of main() once the BrainVision stream is loaded. Keeping
+# them as module globals preserves the function signatures below.
+BAD_RAIL_CHANNELS: set[str] = set()
+BORDERLINE_CHANNELS: set[str] = set()
+BRAINAMP_RAIL_UV = 3200.0
+FIRST_WINDOW_S = 120.0
+SAT_RED_PCT = 50.0
+SAT_YELLOW_PCT = 10.0
 
 # CGX ExGa → AASM derivation rename. AIM-2 port wiring per P013 montage.
 CGX_EXG_RENAME = {
@@ -201,6 +191,48 @@ def _compute_phys_range(signal: np.ndarray) -> tuple[float, float]:
     if pmin >= pmax:
         pmin = pmax - 1.0
     return pmin, pmax
+
+
+def _populate_rail_sets(
+    eeg_stream: dict, eeg_labels: list[str], log_lines: list[str]
+) -> None:
+    """Fill BAD_RAIL_CHANNELS / BORDERLINE_CHANNELS from *this* XDF's
+    first-120 s window, so the EDF prefilter tags reflect the actual
+    recording rather than a prior pilot's numbers."""
+    ts = np.asarray(eeg_stream.get("time_stamps", []), dtype=float)
+    data = np.asarray(eeg_stream.get("time_series", []), dtype=float)
+    BAD_RAIL_CHANNELS.clear()
+    BORDERLINE_CHANNELS.clear()
+    if ts.size == 0 or data.size == 0:
+        log_lines.append(
+            "WARNING: empty BrainVision stream — no rail-saturation flags applied."
+        )
+        return
+    t0 = float(ts[0])
+    mask = (ts >= t0) & (ts < t0 + FIRST_WINDOW_S)
+    d = data[mask, :] if data.ndim == 2 else np.empty((0, 0))
+    if d.size == 0:
+        log_lines.append(
+            "WARNING: first 120 s window empty — no rail-saturation flags applied."
+        )
+        return
+    pct = (np.abs(d) > BRAINAMP_RAIL_UV).sum(axis=0) * 100.0 / d.shape[0]
+    for i in range(min(len(eeg_labels), d.shape[1])):
+        lab = eeg_labels[i]
+        if lab.lower() in ("triggerstream", "trigger"):
+            continue
+        if pct[i] > SAT_RED_PCT:
+            BAD_RAIL_CHANNELS.add(lab)
+        elif pct[i] >= SAT_YELLOW_PCT:
+            BORDERLINE_CHANNELS.add(lab)
+    log_lines.append(
+        f"Rail-saturation (computed from this XDF, first {int(FIRST_WINDOW_S)} s): "
+        f"{len(BAD_RAIL_CHANNELS)} RED, {len(BORDERLINE_CHANNELS)} YELLOW"
+    )
+    if BAD_RAIL_CHANNELS:
+        log_lines.append(f"  RED    = {sorted(BAD_RAIL_CHANNELS)}")
+    if BORDERLINE_CHANNELS:
+        log_lines.append(f"  YELLOW = {sorted(BORDERLINE_CHANNELS)}")
 
 
 def _prefilter_tag(label: str, source: str) -> str:
@@ -354,6 +386,11 @@ def main() -> int:
     log_lines.append(
         f"EEG channels: {len(eeg_labels)}  CGX channels: {len(cgx_labels)}"
     )
+
+    # Compute rail-saturation sets from this subject's first-120 s window
+    # and populate the module-level BAD_RAIL_CHANNELS / BORDERLINE_CHANNELS
+    # so _prefilter_tag() below flags the right channels in the EDF.
+    _populate_rail_sets(eeg, eeg_labels, log_lines)
 
     # Build the EDF channel list: 64 EEG + CGX (with ExGa renamed, admin dropped).
     channels: list[dict] = []

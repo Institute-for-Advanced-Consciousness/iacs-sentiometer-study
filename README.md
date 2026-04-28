@@ -354,6 +354,49 @@ The LSL stream exposed by the device layer is named `Sentiometer`, type `Misc`, 
 
 ---
 
+## Mac live visualizer (plug-and-play)
+
+For exploring a Sentiometer signal on a Mac without LSL, LabRecorder, or a full task setup, the repo ships a standalone visualizer. It opens a Tkinter connect dialog (auto-detects the BlackPill F401CC by VID:PID `0483:5740` and description hints), then a matplotlib window with:
+
+- **Six stacked traces** (Mean + PD1–PD5) over the last ~5 s, autoscaled per channel. Mean trace has 10 s SMA (red) and 30 s SMA (blue) overlays.
+- **Right-side analysis panel** with three views, cycled by the bottom toggle button:
+  1. **Band power (EEG)** — Delta/Theta/Alpha/Beta/Gamma bars (Gamma 30–50 Hz).
+  2. **Power spectrum** — full PSD line, 0–Nyquist.
+  3. **Band power (All)** — 20 ten-Hz-wide bars covering 0–200 Hz.
+- **Window text box** sets the lookback length (1–60 s) feeding the analysis panel.
+
+### Run from a clone of this repo
+
+```bash
+uv sync --extra viz                              # pulls matplotlib
+uv run --extra viz python scripts/mac_visualizer.py
+```
+
+Or double-click `launch_visualizer.command` from Finder.
+
+### Send to a non-technical Mac user
+
+A self-contained bundle lives at [`share/sentiometer-visualizer/`](share/sentiometer-visualizer/) — four files (`Sentiometer Visualizer.command`, `sentiometer_viz.py`, `sentiometer.yaml`, `READ ME FIRST.txt`) totalling ~30 KB. The `.py` file uses [PEP 723 inline metadata](https://peps.python.org/pep-0723/) so `uv` builds an isolated venv with `pyserial`/`pyyaml`/`numpy`/`matplotlib` on first run. No `pylsl`, no project layout, no `pyproject.toml` — just a single script.
+
+To share, zip the folder and send it:
+
+```bash
+cd share && zip -r sentiometer-visualizer.zip sentiometer-visualizer -x "*.DS_Store" "*__pycache__*"
+```
+
+The recipient's first-run flow (documented in `READ ME FIRST.txt`):
+
+1. Plug in the Sentiometer; click **Allow** on the macOS BlackPill prompt.
+2. **Right-click** `Sentiometer Visualizer.command` → **Open** → **Open** (Gatekeeper requires this once for unsigned downloads).
+3. Terminal pops up; the launcher installs `uv` from `astral.sh/uv/install.sh` if missing (~10 MB), then `uv` downloads the four libraries (~30 s). The connect dialog appears.
+4. Click **Connect**. Live visualization opens after the ~2 s BlackPill bootloader pause.
+
+Subsequent runs are ~1–2 s — `uv` caches everything. To uninstall completely: drop the folder and `rm -rf ~/.local/share/uv ~/.cache/uv`.
+
+This visualizer **does not** create an LSL outlet and does not save data. For LSL streaming use the device layer above.
+
+---
+
 ## Contact
 
 **Nicco Reggente, Ph.D.** — PI / Lab Director, IACS

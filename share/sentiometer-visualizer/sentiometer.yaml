@@ -1,0 +1,48 @@
+# =============================================================================
+# Sentiometer LSL Stream Configuration
+# =============================================================================
+# Copy this file to config/local.yaml and edit for your machine.
+# CLI flags override these values.
+
+serial:
+  port: "COM3"                    # Windows COM port (check Device Manager)
+  baudrate: 9600
+  bytesize: 8
+  parity: "none"                  # none | even | odd
+  stopbits: 1
+  timeout_sec: 2.0                # readline timeout; increase if device is slow to start
+  line_ending: "\r\n"             # what to append to commands sent to device
+
+device:
+  # Command format: "<duration_min_zero_padded_5> <sample_interval_ms>"
+  # "00005 2" = 5 minutes, 2ms interval (500 Hz)
+  start_command: "00005 2"
+  sample_interval_ms: 2           # expected interval between samples
+  n_channels: 6                   # device_timestamp + 5 photodiodes
+  values_per_line: 6
+
+lsl:
+  name: "Sentiometer"
+  type: "Misc"
+  channel_count: 6
+  nominal_srate: 500              # Hz (must match 1000 / sample_interval_ms)
+  source_id: "sentiometer_iacs_001"
+  channel_labels:
+    - "device_ts"
+    - "PD1"
+    - "PD2"
+    - "PD3"
+    - "PD4"
+    - "PD5"
+  channel_units:
+    - "ms"
+    - "ADC"
+    - "ADC"
+    - "ADC"
+    - "ADC"
+    - "ADC"
+
+logging:
+  level: "INFO"                   # DEBUG | INFO | WARNING | ERROR
+  status_every_n_samples: 5000    # print status line every N samples (~10s at 500Hz)
+  log_file: null                  # set a path to also log to file (e.g., "logs/stream.log")

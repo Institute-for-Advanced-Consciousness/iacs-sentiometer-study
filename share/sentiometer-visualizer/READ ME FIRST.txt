@@ -1,0 +1,91 @@
+Sentiometer Mac Visualizer
+==========================
+
+What's in this folder
+---------------------
+  Sentiometer Visualizer.command   ← double-click this to launch
+  sentiometer_viz.py               ← the visualizer code (single file)
+  sentiometer.yaml                 ← device settings (don't edit)
+  READ ME FIRST.txt                ← you are here
+
+
+How to launch (first time)
+--------------------------
+1. Plug the Sentiometer into a USB port. macOS will pop up a dialog:
+       "Do you want to connect STMicroelectronics BLACKPILL_F401CC CDC
+        in FS Mode to this Mac?"
+   Click Allow.
+
+2. RIGHT-click "Sentiometer Visualizer.command" and choose Open.
+       (DON'T just double-click the first time — macOS Gatekeeper
+        will block apps downloaded from the internet on a plain
+        double-click. Right-click → Open works around that, and you
+        only need to do it once.)
+
+3. A confirmation dialog appears: "macOS cannot verify the developer
+   of …". Click Open.
+
+4. A Terminal window opens and runs the launcher. The first run will:
+     • Install a tool called `uv` (~10 MB, from astral.sh)
+     • Download matplotlib + numpy + pyserial into an isolated env
+     • Open the connect dialog
+   Total time: about 30–60 seconds, depending on your connection.
+
+5. The connect dialog shows your serial ports. The Sentiometer is
+   marked with a star (★) and is auto-selected. Click Connect.
+
+6. After ~3 seconds (the device firmware needs a moment to start),
+   the live visualization window opens.
+
+
+How to launch (every other time)
+--------------------------------
+Just double-click "Sentiometer Visualizer.command". It should launch
+in 1–2 seconds — `uv` caches everything from the first run.
+
+
+Using the visualizer
+--------------------
+Left side  — six stacked plots:
+  Mean        Average of all 5 photodiodes (PD1–PD5).
+              Two overlays: 10 s SMA in red, 30 s SMA in blue.
+  PD1–PD5     The raw photodiode channels.
+  Each shows the most recent ~5 seconds, autoscaled.
+
+Right side — analysis panel. The button at the bottom cycles through
+three views:
+  1. Band power (EEG)   Delta / Theta / Alpha / Beta / Gamma bars.
+  2. Power spectrum     Full PSD line, 0–250 Hz.
+  3. Band power (All)   20 ten-Hz-wide bars covering 0–200 Hz.
+
+Window text box — type a number (1–60) and press Enter to change how
+many seconds of data feed the analysis panel. Default is 10 s.
+
+To stop: close either window.
+
+
+Troubleshooting
+---------------
+"No USB serial devices found"
+    The Mac doesn't see the device. Unplug, wait 2 s, plug back in.
+    Make sure you clicked Allow on the macOS connect prompt.
+
+"No valid samples received within 60 seconds"
+    The device opened but didn't start streaming. Unplug the USB cable,
+    wait 5 s, plug it back in, and click Connect again.
+
+"command not found: uv" (after first run)
+    Close the Terminal window and re-launch. `uv` was just installed
+    and the new PATH only takes effect in a fresh shell.
+
+Visualizer feels slow / drops samples
+    Other USB-heavy apps (CoolTerm, Arduino IDE, etc.) can compete for
+    the port. Close them and re-launch.
+
+
+Where the libraries actually live
+---------------------------------
+`uv` keeps everything in ~/.local/share/uv (the install) and a tiny
+cache. To completely uninstall: drop this folder, then run in Terminal:
+    rm -rf ~/.local/share/uv ~/.cache/uv
+That's it — nothing else changes on your system.

@@ -33,6 +33,7 @@ logs/
 # Data (never commit raw data)
 data/
 sampledata/
+sample-data/
 *.xdf
 *.edf
 *.bdf

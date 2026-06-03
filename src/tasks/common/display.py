@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 # terminal rings the system bell, which is audibly disruptive at the end of
 # a session. Patch the destructor to swallow the known-benign AttributeError
 # so session shutdown is quiet.
-def _safe_window_del(self: "Window") -> None:
+def _safe_window_del(self: Window) -> None:
     try:
         self.close()
     except (AttributeError, Exception):  # noqa: BLE001

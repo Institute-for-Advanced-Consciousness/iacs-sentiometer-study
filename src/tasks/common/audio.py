@@ -24,7 +24,6 @@ import time
 from pathlib import Path
 
 import click
-from rich.console import Console
 
 # Force PsychoPy's sound backend to pygame before any Sound() call. PsychoPy
 # 2025 defaults to the PTB backend, which requires the `psychtoolbox` package
@@ -36,6 +35,7 @@ from rich.console import Console
 # set the pref so any code that DOES read it sees the same answer.
 from psychopy import prefs
 from psychopy.sound import Sound
+from rich.console import Console
 
 prefs.hardware["audioLib"] = ["pygame"]
 Sound.backend = "pygame"

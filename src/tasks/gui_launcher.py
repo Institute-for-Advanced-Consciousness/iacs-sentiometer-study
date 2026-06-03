@@ -23,10 +23,11 @@ from __future__ import annotations
 import queue
 import tkinter as tk
 import traceback
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
-from typing import Any, Callable
+from typing import Any
 
 from pylsl import StreamOutlet
 
@@ -57,9 +58,11 @@ def _preload_stim_modules() -> None:
     """
     import pygame  # noqa: F401, PLC0415
 
-    from tasks.common import audio  # noqa: F401, PLC0415
-    from tasks.common import display  # noqa: F401, PLC0415
-    from tasks.common import instructions  # noqa: F401, PLC0415
+    from tasks.common import (
+        audio,  # noqa: F401, PLC0415
+        display,  # noqa: F401, PLC0415
+        instructions,  # noqa: F401, PLC0415
+    )
 
 
 # ----- styling ---------------------------------------------------------------

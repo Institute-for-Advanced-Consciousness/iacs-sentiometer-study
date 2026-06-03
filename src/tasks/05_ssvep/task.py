@@ -196,7 +196,7 @@ class _ChromeHide:
         self._active = False
         self._cursor_hidden = False
 
-    def __enter__(self) -> "_ChromeHide":
+    def __enter__(self) -> _ChromeHide:
         if platform.system() != "Darwin":
             return self
         self._prev_dock = _read_dock_autohide()

@@ -1,0 +1,199 @@
+# =============================================================================
+# P013 Channel Lookup Table
+# -----------------------------------------------------------------------------
+# Modality map for every channel in a P013 session XDF, so downstream
+# pipelines (cardiac / respiration / EDA / EOG / EMG / EEG / PSG) can pull the
+# right signal by role rather than by raw label.
+#
+# Derived three ways and cross-checked:
+#   1. XDF channel descriptors  (labels + declared units, the device's own tags)
+#   2. Study manual montage     (Reference/Sentiometer-P013 Manual-020626-190103.pdf,
+#                                "List of Channels and Placements")
+#   3. Empirical signal check   (spectral band share + beat/breath detection on
+#                                P013_S01.xdf, a clean 120-180 s mid-recording window)
+#
+# Where the three agree, confidence is "high". Channels that the device output
+# as flat sentinels this session are marked status: not_populated.
+#
+# NOTE on ECG: the manual wires cardiac off the bio-impedance RESPIRATION
+# paddles below the collarbone, but the AIM-2 still exposes a clean cardiac
+# trace on its dedicated `ECG ` channel (verified: 63 bpm, SDNN ~78 ms). Use
+# the ECG channel for cardiac/HRV; the Resp. channel for respiration.
+# =============================================================================
+
+streams:
+
+  # ---- CGX AIM-2: all autonomic / PSG peripheral signals --------------------
+  cgx:
+    lsl_name: "CGX AIM Phys. Mon. AIM-0106"
+    type: EEG            # declared type; actually mixed physiology (see channels)
+    srate_hz: 500
+    note: >
+      13 channels. ExGa 1-4 are repurposed in the P013 montage for PSG
+      derivations (EOG + chin EMG); the named physio channels carry cardiac,
+      respiration, plethysmograph, and EDA. Declared unit "microvolts" is
+      nominal — the non-EEG channels use device-internal scaling (see units).
+    channels:
+      - idx: 0
+        label: "ExGa 1"
+        modality: EOG
+        derivation: E1-M2          # left eye vs right mastoid (AASM)
+        placement: "paddle at temple (left eye) referenced behind ear (mastoid)"
+        unit: uV
+        status: ok
+        confidence: high
+        empirical: "slow drifts; ~38% power <0.5 Hz, minimal HF — ocular"
+      - idx: 1
+        label: "ExGa 2"
+        modality: EOG
+        derivation: E2-M1          # right eye vs left mastoid (AASM)
+        placement: "paddle at temple (right eye) referenced behind ear (mastoid)"
+        unit: uV
+        status: ok
+        confidence: high
+        empirical: "slow drifts; mirror of ExGa 1 — ocular"
+      - idx: 2
+        label: "ExGa 3"
+        modality: EMG
+        derivation: ChinZ-Chin1    # submental midline bipolar (primary)
+        placement: "chin, either side of midline (bipolar)"
+        unit: uV
+        status: ok
+        confidence: high
+        empirical: "strongest mid/high-band power (33% 8-30 Hz, 25% 30-100 Hz) — muscle"
+      - idx: 3
+        label: "ExGa 4"
+        modality: EMG
+        derivation: Chin2-Chin1prime  # submental lateral bipolar (backup)
+        placement: "chin, under-chin parallel pair (bipolar)"
+        unit: uV
+        status: ok
+        confidence: high
+        empirical: "EMG-like HF share, secondary chin pair"
+      - idx: 4
+        label: "ECG "                # trailing space is in the device label
+        modality: ECG
+        derivation: cardiac
+        placement: "derived off bio-impedance respiration paddles below collarbone"
+        unit: device_au             # arbitrary device units, NOT calibrated uV
+        status: ok
+        confidence: high
+        empirical: "clean QRS; HR 63 bpm, SDNN ~78 ms — primary cardiac source"
+        use_for: [heart_rate, hrv, ibi]
+      - idx: 5
+        label: "Resp."
+        modality: RESP
+        derivation: respiration
+        placement: "bio-impedance paddles just below the collarbones, arrows to midline"
+        unit: device_au
+        status: ok
+        confidence: high
+        empirical: "dominant <0.5 Hz; 16.7 breaths/min — primary respiration source"
+        use_for: [respiration_rate, respiratory_phase]
+      - idx: 6
+        label: "PPG"
+        modality: PPG
+        derivation: photoplethysmograph
+        placement: "fingertip / pulse-ox probe"
+        unit: device_au
+        status: ok
+        confidence: high
+        empirical: "clear cardiac fundamental ~2-8 Hz band — secondary cardiac source / pulse"
+        use_for: [pulse_rate, pulse_transit_proxy]
+      - idx: 7
+        label: "SpO2"
+        modality: SPO2
+        derivation: oxygen_saturation
+        unit: percent
+        status: not_populated
+        confidence: high
+        empirical: "flat sentinel (1.27e8) this session — not recorded"
+      - idx: 8
+        label: "HR"
+        modality: HR_DERIVED
+        derivation: device_heart_rate
+        unit: bpm
+        status: not_populated
+        confidence: high
+        empirical: "flat sentinel (5.11e8) — use ECG-derived HR instead"
+      - idx: 9
+        label: "GSR"
+        modality: EDA
+        derivation: galvanic_skin_response
+        placement: "electrodermal electrodes (hand)"
+        unit: device_au
+        status: ok_needs_scaling
+        confidence: medium
+        empirical: "live signal but huge DC offset (~4.25e8); usable after rescaling/detrend"
+        use_for: [skin_conductance_level, scr]
+      - idx: 10
+        label: "Temp."
+        modality: TEMP
+        derivation: skin_temperature
+        unit: celsius
+        status: not_populated
+        confidence: high
+        empirical: "flat sentinel (-9.6e7) this session — not recorded"
+      - idx: 11
+        label: "Packet Counter"
+        modality: ADMIN
+        derivation: packet_counter
+        unit: count
+        status: ok
+        confidence: high
+        empirical: "0-127 sawtooth — housekeeping, not a physiological signal"
+      - idx: 12
+        label: "TRIGGER"
+        modality: ADMIN
+        derivation: trigger
+        unit: code
+        status: not_populated
+        confidence: high
+        empirical: "flat 0 — unused trigger line"
+
+  # ---- BrainVision 64-ch scalp EEG -----------------------------------------
+  eeg:
+    lsl_name: "BrainAmpSeries-Dev_1"
+    type: EEG
+    srate_hz: 500
+    note: >
+      65 channels = 64 scalp EEG (10-20 / 10-10 labels, all in uV) + 1
+      triggerStream (unit "code"). TP9/TP10 are the usable M1/M2 mastoid
+      proxies for monopolar PSG derivations if needed (see manifest §4).
+      Full per-electrode treatment is deferred to the EEG pipeline phase.
+    channels_summary:
+      eeg_count: 64
+      eeg_unit: uV
+      trigger_channel: { idx: 64, label: "triggerStream", modality: ADMIN, unit: code }
+    mastoid_proxies: [TP9, TP10]
+
+  # ---- Sentiometer (already handled by the report pipeline) -----------------
+  sentiometer:
+    lsl_name: "Sentiometer"
+    type: Misc
+    srate_hz: 500
+    note: "device_ts (ms) + PD1-PD5 (ADC). Handled by sentiometer_derive.py."
+    channels_summary:
+      photodiodes: [PD1, PD2, PD3, PD4, PD5]
+      reference_only: [device_ts]
+
+  # ---- Marker streams -------------------------------------------------------
+  markers:
+    task_markers: { lsl_name: "P013_Task_Markers", type: Markers, source_id: P013_Launcher }
+    brainamp_markers: { lsl_name: "BrainAmpSeries-Dev_1-Markers", type: Markers, note: "empty this session" }
+    cgx_impedance:
+      lsl_name: "CGX AIM Phys. Mon. AIM-0106 Impedance"
+      type: Impedance
+      note: "per-channel contact impedance in kohms (one -Z channel per CGX channel above)"
+
+# -----------------------------------------------------------------------------
+# Roll-up: which channels feed which future modality pipeline
+# -----------------------------------------------------------------------------
+modality_index:
+  cardiac:        { primary: "cgx/ECG ", secondary: "cgx/PPG", derives: [HR, HRV, IBI] }
+  respiration:    { primary: "cgx/Resp.", derives: [resp_rate, resp_phase] }
+  eda:            { primary: "cgx/GSR", caveat: "needs rescaling (device_au, large offset)" }
+  eog:            { channels: ["cgx/ExGa 1", "cgx/ExGa 2"], derivations: [E1-M2, E2-M1] }
+  emg_chin:       { channels: ["cgx/ExGa 3", "cgx/ExGa 4"], derivations: [ChinZ-Chin1, Chin2-Chin1prime] }
+  eeg_scalp:      { stream: "eeg", count: 64, deferred: true }
+  not_available_this_session: ["cgx/SpO2", "cgx/HR", "cgx/Temp.", "cgx/TRIGGER"]

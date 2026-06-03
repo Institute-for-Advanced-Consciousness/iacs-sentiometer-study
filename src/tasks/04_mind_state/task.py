@@ -186,7 +186,7 @@ def _build_pygame_io(
             elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
                 escape_state["pressed"] = True
 
-    def _wrap_text(text: str, font: "pygame.font.Font", max_width_px: int) -> list[str]:
+    def _wrap_text(text: str, font: pygame.font.Font, max_width_px: int) -> list[str]:
         """Word-wrap *text* to fit within *max_width_px* using *font*.
 
         Preserves explicit newlines as paragraph breaks so the caller can
